@@ -9,6 +9,7 @@ import { applyUpdate, checkForUpdates } from "./util/updater.js";
 import { colors } from "./util/colors.js";
 import { createPushToTalk } from "./util/speechToText.js";
 import { createProgressBar } from "./util/progress.js";
+import { ConversationStats } from "./util/stats.js";
 
 const program = new Command();
 program
@@ -66,6 +67,7 @@ program
       }
 
       const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
+      const stats = new ConversationStats();
       let streamed = false;
       const session = await createAgentSession({
         autoApprove,
@@ -91,19 +93,25 @@ program
               spinner.stop();
             }
           }
+          stats.addOutputChunk(token);
           process.stdout.write(colors.assistant(token));
         }
       });
 
       spinner.start();
       try {
+        stats.addInput(request);
+        stats.startResponse();
         const result = await session.runTurn(request);
         spinner.stop();
         if (streamed) {
           process.stdout.write("\n");
         } else {
+          stats.addOutputChunk(result);
           console.log(colors.assistant(result));
         }
+        stats.finishResponse();
+        printStats(stats);
       } catch (err) {
         spinner.stop();
         throw err;
@@ -137,6 +145,7 @@ program
         }
       }
       const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
+      const stats = new ConversationStats();
       const streamState = { active: false };
       const session = await createAgentSession({
         autoApprove,
@@ -160,6 +169,7 @@ program
               spinner.stop();
             }
           }
+          stats.addOutputChunk(token);
           process.stdout.write(colors.assistant(token));
         }
       });
@@ -214,10 +224,13 @@ program
         }
         if (input === "/reset") {
           await session.reset();
+          stats.reset();
           console.log(colors.info("Session reset."));
           continue;
         }
         streamState.active = false;
+        stats.addInput(input);
+        stats.startResponse();
         spinner.start();
         try {
           const response = await session.runTurn(input);
@@ -225,8 +238,11 @@ program
           if (streamState.active) {
             process.stdout.write("\n");
           } else {
+            stats.addOutputChunk(response);
             console.log(colors.assistant(response));
           }
+          stats.finishResponse();
+          printStats(stats);
         } catch (err) {
           spinner.stop();
           throw err;
@@ -293,4 +309,17 @@ async function maybeUpdate(prompt: (question: string) => Promise<boolean>): Prom
 function parseYesNo(answer: string): boolean {
   const normalized = answer.trim().toLowerCase();
   return normalized === "y" || normalized === "yes";
+}
+
+function printStats(stats: ConversationStats): void {
+  const snapshot = stats.snapshot();
+  const parts = [
+    `in~${snapshot.inputTokens}`,
+    `out~${snapshot.outputTokens}`,
+    `total~${snapshot.totalTokens}`,
+    `out/s~${snapshot.outputTokensPerSecond.toFixed(1)}`,
+    `last/s~${snapshot.lastResponseTokensPerSecond.toFixed(1)}`,
+    `elapsed~${snapshot.elapsedSeconds.toFixed(1)}s`
+  ];
+  console.log(colors.dim(`Stats: ${parts.join(" | ")}`));
 }
