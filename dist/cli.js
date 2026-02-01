@@ -6,6 +6,7 @@ import { createAgentSession } from "./agent/loop.js";
 import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
 import { createSpinner } from "./util/spinner.js";
 import { applyUpdate, checkForUpdates } from "./util/updater.js";
+import { colors } from "./util/colors.js";
 const program = new Command();
 program
     .name("workshop")
@@ -54,7 +55,8 @@ program
                 return;
             }
         }
-        const spinner = createSpinner("Thinking...");
+        const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
+        let streamed = false;
         const session = await createAgentSession({
             autoApprove,
             maxSteps,
@@ -64,20 +66,34 @@ program
                     spinner.stop();
                 }
                 const rl = await createChatInterface();
-                const answer = await rl.question(question);
+                const answer = await rl.question(colors.prompt(question));
                 rl.close();
                 if (wasSpinning) {
                     spinner.start();
                 }
                 const normalized = answer.trim().toLowerCase();
                 return normalized === "y" || normalized === "yes";
+            },
+            onToken: (token) => {
+                if (!streamed) {
+                    streamed = true;
+                    if (spinner.isSpinning()) {
+                        spinner.stop();
+                    }
+                }
+                process.stdout.write(colors.assistant(token));
             }
         });
         spinner.start();
         try {
             const result = await session.runTurn(request);
             spinner.stop();
-            console.log(result);
+            if (streamed) {
+                process.stdout.write("\n");
+            }
+            else {
+                console.log(colors.assistant(result));
+            }
         }
         catch (err) {
             spinner.stop();
@@ -102,13 +118,14 @@ program
         const checkUpdates = options.checkUpdates ?? true;
         const rl = await createChatInterface();
         if (checkUpdates) {
-            const updated = await maybeUpdate(async (question) => parseYesNo(await rl.question(question)));
+            const updated = await maybeUpdate(async (question) => parseYesNo(await rl.question(colors.prompt(question))));
             if (updated) {
                 rl.close();
                 return;
             }
         }
-        const spinner = createSpinner("Thinking...");
+        const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
+        const streamState = { active: false };
         const session = await createAgentSession({
             autoApprove,
             maxSteps,
@@ -117,17 +134,26 @@ program
                 if (wasSpinning) {
                     spinner.stop();
                 }
-                const answer = await rl.question(question);
+                const answer = await rl.question(colors.prompt(question));
                 const normalized = answer.trim().toLowerCase();
                 if (wasSpinning) {
                     spinner.start();
                 }
                 return normalized === "y" || normalized === "yes";
+            },
+            onToken: (token) => {
+                if (!streamState.active) {
+                    streamState.active = true;
+                    if (spinner.isSpinning()) {
+                        spinner.stop();
+                    }
+                }
+                process.stdout.write(colors.assistant(token));
             }
         });
-        console.log("Workshop.AI chat. Type /exit to quit, /reset to clear context.");
+        console.log(colors.info("Workshop.AI chat. Type /exit to quit, /reset to clear context."));
         for (;;) {
-            const line = await rl.question("> ");
+            const line = await rl.question(colors.prompt("> "));
             const input = line.trim();
             if (!input) {
                 continue;
@@ -137,14 +163,20 @@ program
             }
             if (input === "/reset") {
                 await session.reset();
-                console.log("Session reset.");
+                console.log(colors.info("Session reset."));
                 continue;
             }
+            streamState.active = false;
             spinner.start();
             try {
                 const response = await session.runTurn(input);
                 spinner.stop();
-                console.log(response);
+                if (streamState.active) {
+                    process.stdout.write("\n");
+                }
+                else {
+                    console.log(colors.assistant(response));
+                }
             }
             catch (err) {
                 spinner.stop();
@@ -154,7 +186,7 @@ program
         rl.close();
     }
     catch (err) {
-        console.error(err.message);
+        console.error(colors.error(err.message));
         process.exitCode = 1;
     }
 });
@@ -185,18 +217,18 @@ async function maybeUpdate(prompt) {
         }
         const update = await applyUpdate(process.cwd());
         if (update.success) {
-            console.log("Updated to latest. Please restart the CLI to use the new version.");
+            console.log(colors.success("Updated to latest. Please restart the CLI to use the new version."));
             return true;
         }
-        console.warn(update.message ?? "Update failed.");
+        console.warn(colors.warn(update.message ?? "Update failed."));
         return false;
     }
     if (result.status === "dirty") {
-        console.warn("Update skipped: working tree has uncommitted changes.");
+        console.warn(colors.warn("Update skipped: working tree has uncommitted changes."));
         return false;
     }
     if (result.status === "error") {
-        console.warn(result.message ?? "Update check failed.");
+        console.warn(colors.warn(result.message ?? "Update check failed."));
     }
     return false;
 }

@@ -1,4 +1,5 @@
 import { stdout } from "node:process";
+import { stripAnsi } from "./colors.js";
 
 export interface Spinner {
   start: () => void;
@@ -8,7 +9,10 @@ export interface Spinner {
 
 const frames = ["|", "/", "-", "\\"];
 
-export function createSpinner(text: string): Spinner {
+export function createSpinner(
+  text: string,
+  options?: { frameColor?: (text: string) => string; textColor?: (text: string) => string }
+): Spinner {
   if (!stdout.isTTY) {
     return {
       start: () => {},
@@ -23,7 +27,9 @@ export function createSpinner(text: string): Spinner {
   const render = () => {
     const frame = frames[frameIndex];
     frameIndex = (frameIndex + 1) % frames.length;
-    stdout.write(`\r${frame} ${text}`);
+    const frameOut = options?.frameColor ? options.frameColor(frame) : frame;
+    const textOut = options?.textColor ? options.textColor(text) : text;
+    stdout.write(`\r${frameOut} ${textOut}`);
   };
 
   const start = () => {
@@ -40,7 +46,7 @@ export function createSpinner(text: string): Spinner {
     }
     clearInterval(timer);
     timer = null;
-    const clearWidth = text.length + 2;
+    const clearWidth = stripAnsi(text).length + 2;
     stdout.write(`\r${" ".repeat(clearWidth)}\r`);
   };
 

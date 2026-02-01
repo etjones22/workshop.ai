@@ -22,9 +22,16 @@ export async function createAgentSession(options) {
         messages.push({ role: "user", content: request });
         await logger.log({ type: "message", role: "user", content: request });
         for (let step = 0; step < options.maxSteps; step += 1) {
-            const response = await client.chat({ messages, tools: tools.definitions, toolChoice: "auto" });
-            const choice = response.choices[0];
-            const message = choice?.message;
+            let message = null;
+            if (options.onToken) {
+                const streamed = await streamAssistantResponse(client, messages, tools.definitions, options.onToken);
+                message = streamed;
+            }
+            else {
+                const response = await client.chat({ messages, tools: tools.definitions, toolChoice: "auto" });
+                const choice = response.choices[0];
+                message = choice?.message ?? null;
+            }
             if (!message) {
                 return "No response from model.";
             }
@@ -113,4 +120,67 @@ async function promptYesNo(question) {
             resolve(normalized === "y" || normalized === "yes");
         });
     });
+}
+async function streamAssistantResponse(client, messages, tools, onToken) {
+    let content = "";
+    const toolCalls = [];
+    for await (const chunk of client.chatStream({ messages, tools, toolChoice: "auto" })) {
+        const choice = chunk.choices[0];
+        const delta = choice?.delta;
+        if (!delta) {
+            continue;
+        }
+        if (delta.content) {
+            content += delta.content;
+            onToken(delta.content);
+        }
+        if (delta.tool_calls && delta.tool_calls.length > 0) {
+            mergeToolCallDeltas(toolCalls, delta.tool_calls);
+        }
+    }
+    const message = {
+        role: "assistant",
+        content: content.length > 0 ? content : null
+    };
+    if (toolCalls.length > 0) {
+        message.tool_calls = toolCalls;
+    }
+    return message;
+}
+function mergeToolCallDeltas(target, deltas) {
+    for (const delta of deltas) {
+        const index = resolveToolCallIndex(target, delta);
+        if (!target[index]) {
+            target[index] = {
+                id: delta.id ?? `call_${Date.now()}_${index}`,
+                type: "function",
+                function: {
+                    name: "",
+                    arguments: ""
+                }
+            };
+        }
+        const current = target[index];
+        if (delta.id && current.id !== delta.id) {
+            current.id = delta.id;
+        }
+        if (delta.function?.name) {
+            current.function.name = delta.function.name;
+        }
+        if (delta.function?.arguments) {
+            current.function.arguments += delta.function.arguments;
+        }
+    }
+}
+function resolveToolCallIndex(target, delta) {
+    if (typeof delta.index === "number") {
+        return delta.index;
+    }
+    if (delta.id) {
+        const existing = target.findIndex((call) => call.id === delta.id);
+        if (existing >= 0) {
+            return existing;
+        }
+    }
+    return target.length;
 }

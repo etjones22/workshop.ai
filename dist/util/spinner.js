@@ -1,6 +1,7 @@
 import { stdout } from "node:process";
+import { stripAnsi } from "./colors.js";
 const frames = ["|", "/", "-", "\\"];
-export function createSpinner(text) {
+export function createSpinner(text, options) {
     if (!stdout.isTTY) {
         return {
             start: () => { },
@@ -13,7 +14,9 @@ export function createSpinner(text) {
     const render = () => {
         const frame = frames[frameIndex];
         frameIndex = (frameIndex + 1) % frames.length;
-        stdout.write(`\r${frame} ${text}`);
+        const frameOut = options?.frameColor ? options.frameColor(frame) : frame;
+        const textOut = options?.textColor ? options.textColor(text) : text;
+        stdout.write(`\r${frameOut} ${textOut}`);
     };
     const start = () => {
         if (timer) {
@@ -28,7 +31,7 @@ export function createSpinner(text) {
         }
         clearInterval(timer);
         timer = null;
-        const clearWidth = text.length + 2;
+        const clearWidth = stripAnsi(text).length + 2;
         stdout.write(`\r${" ".repeat(clearWidth)}\r`);
     };
     return {
