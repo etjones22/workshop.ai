@@ -7,6 +7,8 @@ import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
 import { createSpinner } from "./util/spinner.js";
 import { applyUpdate, checkForUpdates } from "./util/updater.js";
 import { colors } from "./util/colors.js";
+import { createPushToTalk } from "./util/speechToText.js";
+import { createProgressBar } from "./util/progress.js";
 
 const program = new Command();
 program
@@ -118,11 +120,13 @@ program
   .option("--auto-approve", "Skip confirmations for write tools", false)
   .option("--max-steps <n>", "Max agent steps per user turn", (value) => parseInt(value, 10), 12)
   .option("--check-updates", "Check GitHub for updates on startup", true)
-  .action(async (options: { autoApprove?: boolean; maxSteps?: number }) => {
+  .option("--push-to-talk", "Enable push-to-talk (hold Ctrl+Win)", false)
+  .action(async (options: { autoApprove?: boolean; maxSteps?: number; pushToTalk?: boolean }) => {
     try {
       const autoApprove = options.autoApprove ?? false;
       const maxSteps = options.maxSteps ?? 12;
       const checkUpdates = (options as { checkUpdates?: boolean }).checkUpdates ?? true;
+      const pushToTalk = options.pushToTalk ?? false;
 
       const rl = await createChatInterface();
       if (checkUpdates) {
@@ -160,9 +164,47 @@ program
         }
       });
 
+      let ptt: ReturnType<typeof createPushToTalk> | null = null;
+      let awaitingInput = false;
+      if (pushToTalk) {
+        const downloadProgress = createProgressBar(colors.info("Downloading Vosk model"));
+        ptt = createPushToTalk({
+          onTranscript: (text) => {
+            const cleaned = text.trim();
+            if (!cleaned) {
+              return;
+            }
+            if (!awaitingInput) {
+              return;
+            }
+            if (spinner.isSpinning()) {
+              spinner.stop();
+            }
+            rl.write(`${cleaned}\n`);
+          },
+          onStatus: (status) => {
+            if (spinner.isSpinning()) {
+              spinner.stop();
+            }
+            console.log(colors.info(status));
+          },
+          onError: (message) => {
+            if (spinner.isSpinning()) {
+              spinner.stop();
+            }
+            console.warn(colors.warn(message));
+          },
+          progress: downloadProgress
+        });
+        await ptt.start();
+        console.log(colors.info("Push-to-talk enabled (hold Ctrl+Win to speak)."));
+      }
+
       console.log(colors.info("Workshop.AI chat. Type /exit to quit, /reset to clear context."));
       for (;;) {
+        awaitingInput = true;
         const line = await rl.question(colors.prompt("> "));
+        awaitingInput = false;
         const input = line.trim();
         if (!input) {
           continue;
@@ -191,6 +233,9 @@ program
         }
       }
       rl.close();
+      if (ptt) {
+        await ptt.stop();
+      }
     } catch (err) {
       console.error(colors.error((err as Error).message));
       process.exitCode = 1;
