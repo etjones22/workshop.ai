@@ -4,38 +4,46 @@ Local-first, tool-using agent loop powered by Ollama. Includes a CLI, safe file 
 
 ## Quickstart
 
-### 1) Prerequisites
+### 1) Download
+```
+git clone https://github.com/etjones22/workshop.ai.git
+cd workshop.ai
+```
+
+### 2) Setup
+Prerequisites:
 - Node.js 20+
 - Ollama running locally with model `gpt-oss:20b`
 - (Optional, for push-to-talk) Python 3 on PATH
 - (Optional, for push-to-talk) `sox` or `rec` on PATH for microphone capture
 
-### 2) Install
+Install dependencies:
 ```
 npm install
 ```
 
-### 3) Build
+Build:
 ```
 npm run build
 ```
 
-### 4) Initialize workspace
+Initialize workspace:
 ```
 npm start -- init
 ```
 
-### 5) Run (one-shot)
+### 3) Commands
+Run (one-shot):
 ```
 npm start -- run "Summarize ./workspace/hello.txt"
 ```
 
-### 6) Chat (interactive)
+Chat (interactive):
 ```
 npm start -- chat
 ```
 
-### 7) Chat with push-to-talk
+Chat with push-to-talk:
 ```
 npm start -- chat --push-to-talk
 ```
