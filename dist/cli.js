@@ -2,8 +2,10 @@
 import { Command } from "commander";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { runAgent, createAgentSession } from "./agent/loop.js";
+import { createAgentSession } from "./agent/loop.js";
 import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
+import { createSpinner } from "./util/spinner.js";
+import { applyUpdate, checkForUpdates } from "./util/updater.js";
 const program = new Command();
 program
     .name("workshop")
@@ -34,15 +36,53 @@ program
     .argument("<request...>", "User request")
     .option("--auto-approve", "Skip confirmations for write tools", false)
     .option("--max-steps <n>", "Max agent steps", (value) => parseInt(value, 10), 12)
+    .option("--check-updates", "Check GitHub for updates on startup", true)
     .action(async (requestParts, options) => {
     try {
         const request = requestParts.join(" ");
-        const result = await runAgent({
-            request,
-            autoApprove: options.autoApprove ?? false,
-            maxSteps: options.maxSteps ?? 12
+        const autoApprove = options.autoApprove ?? false;
+        const maxSteps = options.maxSteps ?? 12;
+        const checkUpdates = options.checkUpdates ?? true;
+        if (checkUpdates) {
+            const updated = await maybeUpdate(async (question) => {
+                const rl = await createChatInterface();
+                const answer = await rl.question(question);
+                rl.close();
+                return parseYesNo(answer);
+            });
+            if (updated) {
+                return;
+            }
+        }
+        const spinner = createSpinner("Thinking...");
+        const session = await createAgentSession({
+            autoApprove,
+            maxSteps,
+            confirm: async (question) => {
+                const wasSpinning = spinner.isSpinning();
+                if (wasSpinning) {
+                    spinner.stop();
+                }
+                const rl = await createChatInterface();
+                const answer = await rl.question(question);
+                rl.close();
+                if (wasSpinning) {
+                    spinner.start();
+                }
+                const normalized = answer.trim().toLowerCase();
+                return normalized === "y" || normalized === "yes";
+            }
         });
-        console.log(result);
+        spinner.start();
+        try {
+            const result = await session.runTurn(request);
+            spinner.stop();
+            console.log(result);
+        }
+        catch (err) {
+            spinner.stop();
+            throw err;
+        }
     }
     catch (err) {
         console.error(err.message);
@@ -54,17 +94,34 @@ program
     .description("Start an interactive chat session")
     .option("--auto-approve", "Skip confirmations for write tools", false)
     .option("--max-steps <n>", "Max agent steps per user turn", (value) => parseInt(value, 10), 12)
+    .option("--check-updates", "Check GitHub for updates on startup", true)
     .action(async (options) => {
     try {
         const autoApprove = options.autoApprove ?? false;
         const maxSteps = options.maxSteps ?? 12;
+        const checkUpdates = options.checkUpdates ?? true;
         const rl = await createChatInterface();
+        if (checkUpdates) {
+            const updated = await maybeUpdate(async (question) => parseYesNo(await rl.question(question)));
+            if (updated) {
+                rl.close();
+                return;
+            }
+        }
+        const spinner = createSpinner("Thinking...");
         const session = await createAgentSession({
             autoApprove,
             maxSteps,
             confirm: async (question) => {
+                const wasSpinning = spinner.isSpinning();
+                if (wasSpinning) {
+                    spinner.stop();
+                }
                 const answer = await rl.question(question);
                 const normalized = answer.trim().toLowerCase();
+                if (wasSpinning) {
+                    spinner.start();
+                }
                 return normalized === "y" || normalized === "yes";
             }
         });
@@ -83,8 +140,16 @@ program
                 console.log("Session reset.");
                 continue;
             }
-            const response = await session.runTurn(input);
-            console.log(response);
+            spinner.start();
+            try {
+                const response = await session.runTurn(input);
+                spinner.stop();
+                console.log(response);
+            }
+            catch (err) {
+                spinner.stop();
+                throw err;
+            }
         }
         rl.close();
     }
@@ -107,4 +172,35 @@ async function createChatInterface() {
     const readline = await import("node:readline/promises");
     const { stdin, stdout } = await import("node:process");
     return readline.createInterface({ input: stdin, output: stdout });
+}
+async function maybeUpdate(prompt) {
+    const result = await checkForUpdates(process.cwd());
+    if (result.status === "update-available") {
+        const behind = result.behind ?? 0;
+        const branch = result.branch ?? "origin";
+        const question = `Update available (${behind} commit${behind === 1 ? "" : "s"} behind ${branch}). Pull latest now? [y/N] `;
+        const approved = await prompt(question);
+        if (!approved) {
+            return false;
+        }
+        const update = await applyUpdate(process.cwd());
+        if (update.success) {
+            console.log("Updated to latest. Please restart the CLI to use the new version.");
+            return true;
+        }
+        console.warn(update.message ?? "Update failed.");
+        return false;
+    }
+    if (result.status === "dirty") {
+        console.warn("Update skipped: working tree has uncommitted changes.");
+        return false;
+    }
+    if (result.status === "error") {
+        console.warn(result.message ?? "Update check failed.");
+    }
+    return false;
+}
+function parseYesNo(answer) {
+    const normalized = answer.trim().toLowerCase();
+    return normalized === "y" || normalized === "yes";
 }
