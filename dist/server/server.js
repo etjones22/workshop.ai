@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { createAgentSession } from "../agent/loop.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
+import { estimateTokens } from "../util/stats.js";
 export async function startServer(options) {
     const sessions = new Map();
     await ensureWorkspaceRoot(path.join(options.baseDir, "workspaces"));
@@ -61,6 +62,13 @@ export async function startServer(options) {
                     return sendJson(res, 409, { error: "Session is busy" });
                 }
                 record.busy = true;
+                const clientIp = getClientIp(req);
+                const inputTokens = estimateTokens(message);
+                const inputChars = message.length;
+                const preview = message.replace(/\s+/g, " ").slice(0, 200);
+                const startTime = Date.now();
+                console.log(`Incoming request from ${clientIp} | user=${userId} | session=${sessionId} | chars=${inputChars} | tokens~${inputTokens}`);
+                console.log(`Message: ${preview}${message.length > 200 ? "..." : ""}`);
                 res.writeHead(200, {
                     "Content-Type": "text/event-stream",
                     "Cache-Control": "no-cache",
@@ -75,12 +83,16 @@ export async function startServer(options) {
                 req.on("close", () => {
                     closed = true;
                 });
+                let outputTokens = 0;
+                let outputChars = 0;
                 try {
                     await record.session.runTurn(message, {
                         onToken: (token) => {
                             if (closed) {
                                 return;
                             }
+                            outputTokens += estimateTokens(token);
+                            outputChars += token.length;
                             writeSse(res, { type: "token", token });
                         }
                     });
@@ -94,6 +106,9 @@ export async function startServer(options) {
                     }
                 }
                 finally {
+                    const durationSec = (Date.now() - startTime) / 1000;
+                    const totalTokens = inputTokens + outputTokens;
+                    console.log(`Completed request | user=${userId} | session=${sessionId} | in~${inputTokens} out~${outputTokens} total~${totalTokens} | chars in=${inputChars} out=${outputChars} | ${durationSec.toFixed(2)}s`);
                     record.busy = false;
                     res.end();
                 }
@@ -143,6 +158,16 @@ async function readJson(req) {
     catch {
         return {};
     }
+}
+function getClientIp(req) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.trim()) {
+        return forwarded.split(",")[0].trim();
+    }
+    if (Array.isArray(forwarded) && forwarded.length > 0) {
+        return forwarded[0];
+    }
+    return req.socket.remoteAddress ?? "unknown";
 }
 function sanitizeUserId(input) {
     const raw = String(input).trim();
