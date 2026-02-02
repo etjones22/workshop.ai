@@ -399,9 +399,8 @@ async function maybeUpdate(prompt) {
     if (result.status === "update-available") {
         const behind = result.behind ?? 0;
         const branch = result.branch ?? "origin";
-        const question = `Update available (${behind} commit${behind === 1 ? "" : "s"} behind ${branch}). Pull latest now? [y/N] `;
-        const approved = await prompt(question);
-        if (!approved) {
+        const countdownResult = await autoUpdateCountdown(behind, branch, 10);
+        if (!countdownResult) {
             return false;
         }
         const update = result.dirty ? await applyUpdateWithStash(process.cwd()) : await applyUpdate(process.cwd());
@@ -425,6 +424,28 @@ async function maybeUpdate(prompt) {
 function parseYesNo(answer) {
     const normalized = answer.trim().toLowerCase();
     return normalized === "y" || normalized === "yes";
+}
+async function autoUpdateCountdown(behind, branch, seconds) {
+    console.log(colors.info(`Update available (${behind} commit${behind === 1 ? "" : "s"} behind ${branch}). Auto-updating in ${seconds} seconds.`));
+    console.log(colors.warn("Press N to cancel update."));
+    const readline = await import("node:readline/promises");
+    const { stdin, stdout } = await import("node:process");
+    const rl = readline.createInterface({ input: stdin, output: stdout });
+    let cancelled = false;
+    const cancelPromise = rl.question("> ").then((answer) => {
+        cancelled = answer.trim().toLowerCase() === "n";
+    });
+    for (let remaining = seconds; remaining > 0; remaining -= 1) {
+        process.stdout.write(colors.info(`Auto-update in ${remaining}...\r`));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (cancelled) {
+            break;
+        }
+    }
+    rl.close();
+    await cancelPromise;
+    process.stdout.write(" \r");
+    return !cancelled;
 }
 function printStats(stats) {
     const snapshot = stats.snapshot();
