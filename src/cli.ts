@@ -13,12 +13,16 @@ import { ConversationStats } from "./util/stats.js";
 import { renderMarkdownToAnsi } from "./util/markdown.js";
 import { startServer } from "./server/server.js";
 import { createRemoteSession } from "./util/remoteClient.js";
+import { formatVersionBanner, getVersionInfo } from "./util/version.js";
 
 const program = new Command();
 program
   .name("workshop")
   .description("Workshop.AI local tool-using agent")
   .version("0.1.0");
+
+const versionInfo = await getVersionInfo(process.cwd());
+console.log(colors.info(formatVersionBanner(versionInfo)));
 
 program
   .command("init")
