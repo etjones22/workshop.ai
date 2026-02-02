@@ -21,8 +21,19 @@ program
   .description("Workshop.AI local tool-using agent")
   .version("0.1.0");
 
+const asciiArt = String.raw`
+ __          __        _        _                           _____ 
+ \ \        / /       | |      | |                    /\   |_   _|
+  \ \  /\  / /__  _ __| | _____| |__   ___  _ __     /  \    | |  
+   \ \/  \/ / _ \| '__| |/ / __| '_ \ / _ \| '_ \   / /\ \   | |  
+    \  /\  / (_) | |  |   <\__ \ | | | (_) | |_) | / ____ \ _| |_ 
+     \/  \/ \___/|_|  |_|\_\___/_| |_|\___/| .__(_)_/    \_\_____|
+                                           | |                    
+                                           |_|                    
+`;
+
 const versionInfo = await getVersionInfo(process.cwd());
-console.log(colors.info(formatVersionBanner(versionInfo)));
+printBanner();
 
 program
   .command("init")
@@ -332,6 +343,16 @@ program
         if (input === "/exit" || input === "/quit") {
           break;
         }
+        if (input === "/clear") {
+          console.clear();
+          printBanner();
+          console.log(colors.info("Chat session continues. Type /exit to quit, /reset to clear context."));
+          continue;
+        }
+        if (input === "/version") {
+          console.log(colors.info(formatVersionBanner(versionInfo)));
+          continue;
+        }
         if (input === "/reset") {
           if (remoteSession) {
             await remoteSession.reset();
@@ -446,4 +467,9 @@ function printStats(stats: ConversationStats): void {
     `elapsed~${snapshot.elapsedSeconds.toFixed(1)}s`
   ];
   console.log(colors.dim(`Stats: ${parts.join(" | ")}`));
+}
+
+function printBanner(): void {
+  console.log(colors.info(asciiArt));
+  console.log(colors.info(formatVersionBanner(versionInfo)));
 }
