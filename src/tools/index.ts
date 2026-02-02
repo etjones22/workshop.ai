@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "../llm/ollamaClient.js";
 import { webSearch, webFetch } from "./web.js";
 import { fsList, fsRead, fsWrite, fsApplyPatch } from "./fs.js";
+import { docSummarize } from "./doc.js";
 
 export interface ToolRegistry {
   definitions: ToolDefinition[];
@@ -105,6 +106,24 @@ export function createToolRegistry(workspaceRoot: string): ToolRegistry {
           additionalProperties: false
         }
       }
+    },
+    {
+      type: "function",
+      function: {
+        name: "doc_summarize",
+        description: "Summarize a local document or URL using the local model.",
+        parameters: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            maxChars: { type: "integer", minimum: 100, maximum: 400000 },
+            style: { type: "string", enum: ["brief", "detailed", "bullets"] },
+            focus: { type: "string" }
+          },
+          required: ["source"],
+          additionalProperties: false
+        }
+      }
     }
   ];
 
@@ -127,7 +146,14 @@ export function createToolRegistry(workspaceRoot: string): ToolRegistry {
     fs_read: async (args: { path: string }) => fsRead(workspaceRoot, args.path),
     fs_write: async (args: { path: string; content: string; overwrite?: boolean }) =>
       fsWrite(workspaceRoot, args.path, args.content, args.overwrite ?? false),
-    fs_apply_patch: async (args: { patch: string }) => fsApplyPatch(workspaceRoot, args.patch)
+    fs_apply_patch: async (args: { patch: string }) => fsApplyPatch(workspaceRoot, args.patch),
+    doc_summarize: async (args: { source: string; maxChars?: number; style?: "brief" | "detailed" | "bullets"; focus?: string }) =>
+      docSummarize(workspaceRoot, {
+        source: args.source,
+        maxChars: args.maxChars,
+        style: args.style,
+        focus: args.focus
+      })
   };
 
   const writeTools = new Set<string>(["fs_write", "fs_apply_patch"]);

@@ -1,5 +1,6 @@
 import { webSearch, webFetch } from "./web.js";
 import { fsList, fsRead, fsWrite, fsApplyPatch } from "./fs.js";
+import { docSummarize } from "./doc.js";
 export function createToolRegistry(workspaceRoot) {
     const definitions = [
         {
@@ -97,6 +98,24 @@ export function createToolRegistry(workspaceRoot) {
                     additionalProperties: false
                 }
             }
+        },
+        {
+            type: "function",
+            function: {
+                name: "doc_summarize",
+                description: "Summarize a local document or URL using the local model.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        source: { type: "string" },
+                        maxChars: { type: "integer", minimum: 100, maximum: 400000 },
+                        style: { type: "string", enum: ["brief", "detailed", "bullets"] },
+                        focus: { type: "string" }
+                    },
+                    required: ["source"],
+                    additionalProperties: false
+                }
+            }
         }
     ];
     const handlers = {
@@ -110,7 +129,13 @@ export function createToolRegistry(workspaceRoot) {
         fs_list: async (args) => fsList(workspaceRoot, args.path ?? "."),
         fs_read: async (args) => fsRead(workspaceRoot, args.path),
         fs_write: async (args) => fsWrite(workspaceRoot, args.path, args.content, args.overwrite ?? false),
-        fs_apply_patch: async (args) => fsApplyPatch(workspaceRoot, args.patch)
+        fs_apply_patch: async (args) => fsApplyPatch(workspaceRoot, args.patch),
+        doc_summarize: async (args) => docSummarize(workspaceRoot, {
+            source: args.source,
+            maxChars: args.maxChars,
+            style: args.style,
+            focus: args.focus
+        })
     };
     const writeTools = new Set(["fs_write", "fs_apply_patch"]);
     return { definitions, handlers, writeTools };
