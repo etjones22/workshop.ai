@@ -17,18 +17,21 @@ export interface AgentSessionOptions {
   maxSteps: number;
   confirm?: (question: string) => Promise<boolean>;
   onToken?: (token: string) => void;
+  workspaceRoot?: string;
+  baseDir?: string;
 }
 
 export interface AgentSession {
-  runTurn: (request: string) => Promise<string>;
+  runTurn: (request: string, options?: { onToken?: (token: string) => void }) => Promise<string>;
   reset: () => Promise<void>;
 }
 
 export async function createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
-  const workspaceRoot = path.join(process.cwd(), "workspace");
+  const baseDir = options.baseDir ?? process.cwd();
+  const workspaceRoot = options.workspaceRoot ?? path.join(baseDir, "workspace");
   await ensureWorkspaceRoot(workspaceRoot);
 
-  const logger = await createSessionLogger(process.cwd());
+  const logger = await createSessionLogger(baseDir);
   const tools = createToolRegistry(workspaceRoot);
   const client = new OllamaClient({
     baseUrl: "http://localhost:11434/v1",
@@ -40,19 +43,20 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
   let messages: ChatMessage[] = [{ role: "system", content: buildSystemPrompt(options.autoApprove) }];
   await logger.log({ type: "message", role: "system", content: messages[0].content });
 
-  async function runTurn(request: string): Promise<string> {
+  async function runTurn(request: string, runOptions?: { onToken?: (token: string) => void }): Promise<string> {
+    const onToken = runOptions?.onToken ?? options.onToken;
     messages.push({ role: "user", content: request });
     await logger.log({ type: "message", role: "user", content: request });
 
     for (let step = 0; step < options.maxSteps; step += 1) {
       let message: ChatMessage | null = null;
 
-      if (options.onToken) {
+      if (onToken) {
         const streamed = await streamAssistantResponse(
           client,
           messages,
           tools.definitions,
-          options.onToken
+          onToken
         );
         message = streamed;
       } else {

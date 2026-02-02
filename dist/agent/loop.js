@@ -6,9 +6,10 @@ import { createToolRegistry } from "../tools/index.js";
 import { createSessionLogger } from "../util/logger.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
 export async function createAgentSession(options) {
-    const workspaceRoot = path.join(process.cwd(), "workspace");
+    const baseDir = options.baseDir ?? process.cwd();
+    const workspaceRoot = options.workspaceRoot ?? path.join(baseDir, "workspace");
     await ensureWorkspaceRoot(workspaceRoot);
-    const logger = await createSessionLogger(process.cwd());
+    const logger = await createSessionLogger(baseDir);
     const tools = createToolRegistry(workspaceRoot);
     const client = new OllamaClient({
         baseUrl: "http://localhost:11434/v1",
@@ -18,13 +19,14 @@ export async function createAgentSession(options) {
     const confirm = options.confirm ?? promptYesNo;
     let messages = [{ role: "system", content: buildSystemPrompt(options.autoApprove) }];
     await logger.log({ type: "message", role: "system", content: messages[0].content });
-    async function runTurn(request) {
+    async function runTurn(request, runOptions) {
+        const onToken = runOptions?.onToken ?? options.onToken;
         messages.push({ role: "user", content: request });
         await logger.log({ type: "message", role: "user", content: request });
         for (let step = 0; step < options.maxSteps; step += 1) {
             let message = null;
-            if (options.onToken) {
-                const streamed = await streamAssistantResponse(client, messages, tools.definitions, options.onToken);
+            if (onToken) {
+                const streamed = await streamAssistantResponse(client, messages, tools.definitions, onToken);
                 message = streamed;
             }
             else {

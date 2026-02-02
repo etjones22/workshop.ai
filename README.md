@@ -11,6 +11,11 @@ cd workshop.ai
 ```
 
 ### 2) Setup
+Windows quick setup (recommended):
+```
+setup.bat
+```
+
 Prerequisites:
 - Node.js 20+
 - Ollama running locally with model `gpt-oss:20b`
@@ -48,6 +53,17 @@ Chat with push-to-talk:
 npm start -- chat --push-to-talk
 ```
 Hold **Ctrl + Win** while speaking, release to transcribe and insert text into the prompt.
+
+### 4) Remote Mode (Option B)
+Start the server on your machine:
+```
+npm start -- serve --host 0.0.0.0 --port 8080 --token YOUR_TOKEN --auto-approve
+```
+
+Connect from a client machine:
+```
+npm start -- chat --remote http://YOUR_HOST:8080 --token YOUR_TOKEN --user dev1
+```
 
 ## Environment Variables
 

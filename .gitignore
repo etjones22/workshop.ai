@@ -1,5 +1,6 @@
 node_modules/
 .workshop/
 workspace/
+workspaces/
 *.log
 .env
