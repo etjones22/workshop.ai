@@ -232,7 +232,7 @@ program
   .option("--auto-approve", "Skip confirmations for write tools", false)
   .option("--max-steps <n>", "Max agent steps per user turn", (value) => parseInt(value, 10), 12)
   .option("--check-updates", "Check GitHub for updates on startup", true)
-  .option("--push-to-talk", "Enable push-to-talk (hold Ctrl+Win)", false)
+  .option("--no-push-to-talk", "Disable push-to-talk (hold Ctrl+Win)")
   .option("--remote <url>", "Use a remote Workshop.AI server")
   .option("--token <token>", "Remote auth token")
   .option("--user <id>", "Remote user id")
@@ -249,7 +249,7 @@ program
       const autoApprove = options.autoApprove ?? false;
       const maxSteps = options.maxSteps ?? 12;
       const checkUpdates = (options as { checkUpdates?: boolean }).checkUpdates ?? true;
-      const pushToTalk = options.pushToTalk ?? false;
+      const pushToTalk = options.pushToTalk ?? true;
       const remote = options.remote;
       const token = options.token;
       const userId = options.user;
