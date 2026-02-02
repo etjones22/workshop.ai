@@ -428,12 +428,26 @@ function parseYesNo(answer) {
 async function autoUpdateCountdown(behind, branch, seconds) {
     console.log(colors.info(`Update available (${behind} commit${behind === 1 ? "" : "s"} behind ${branch}). Auto-updating in ${seconds} seconds.`));
     console.log(colors.warn("Press N to cancel update."));
-    const readline = await import("node:readline/promises");
+    const readline = await import("node:readline");
     const { stdin, stdout } = await import("node:process");
     const rl = readline.createInterface({ input: stdin, output: stdout });
     let cancelled = false;
-    const cancelPromise = rl.question("> ").then((answer) => {
-        cancelled = answer.trim().toLowerCase() === "n";
+    const cancelPromise = new Promise((resolve) => {
+        const onLine = (line) => {
+            cancelled = line.trim().toLowerCase() === "n";
+            cleanup();
+            resolve();
+        };
+        const onClose = () => {
+            cleanup();
+            resolve();
+        };
+        const cleanup = () => {
+            rl.removeListener("line", onLine);
+            rl.removeListener("close", onClose);
+        };
+        rl.on("line", onLine);
+        rl.on("close", onClose);
     });
     for (let remaining = seconds; remaining > 0; remaining -= 1) {
         process.stdout.write(colors.info(`Auto-update in ${remaining}...\r`));

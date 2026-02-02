@@ -463,12 +463,26 @@ async function autoUpdateCountdown(behind: number, branch: string, seconds: numb
   );
   console.log(colors.warn("Press N to cancel update."));
 
-  const readline = await import("node:readline/promises");
+  const readline = await import("node:readline");
   const { stdin, stdout } = await import("node:process");
   const rl = readline.createInterface({ input: stdin, output: stdout });
   let cancelled = false;
-  const cancelPromise = rl.question("> ").then((answer) => {
-    cancelled = answer.trim().toLowerCase() === "n";
+  const cancelPromise = new Promise<void>((resolve) => {
+    const onLine = (line: string) => {
+      cancelled = line.trim().toLowerCase() === "n";
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      rl.removeListener("line", onLine);
+      rl.removeListener("close", onClose);
+    };
+    rl.on("line", onLine);
+    rl.on("close", onClose);
   });
 
   for (let remaining = seconds; remaining > 0; remaining -= 1) {
