@@ -15,9 +15,7 @@ export async function checkForUpdates(repoDir) {
         return { status: "no-remote", message: "No origin remote configured" };
     }
     const dirty = await git(["status", "--porcelain"]).catch(() => "");
-    if (dirty.trim().length > 0) {
-        return { status: "dirty", message: "Working tree has uncommitted changes" };
-    }
+    const isDirty = dirty.trim().length > 0;
     await git(["fetch", "--quiet", "origin"]).catch((err) => {
         throw new Error(`Failed to fetch origin: ${err}`);
     });
@@ -41,9 +39,9 @@ export async function checkForUpdates(repoDir) {
         .map((value) => parseInt(value, 10))
         .map((value) => (Number.isNaN(value) ? 0 : value));
     if (behind > 0) {
-        return { status: "update-available", localSha, remoteSha, branch, behind, ahead };
+        return { status: "update-available", localSha, remoteSha, branch, behind, ahead, dirty: isDirty };
     }
-    return { status: "up-to-date", localSha, remoteSha, branch, behind, ahead };
+    return { status: "up-to-date", localSha, remoteSha, branch, behind, ahead, dirty: isDirty };
 }
 export async function applyUpdate(repoDir) {
     const git = await createGitRunner(repoDir);
@@ -53,6 +51,23 @@ export async function applyUpdate(repoDir) {
     try {
         await git(["pull", "--ff-only"]);
         return { success: true };
+    }
+    catch (err) {
+        return { success: false, message: String(err) };
+    }
+}
+export async function applyUpdateWithStash(repoDir) {
+    const git = await createGitRunner(repoDir);
+    if (!git) {
+        return { success: false, message: "git is not available on PATH" };
+    }
+    try {
+        await git(["stash", "push", "-u", "-m", "workshop-auto-update"]);
+        await git(["pull", "--ff-only"]);
+        const popResult = await git(["stash", "pop"]).catch((err) => {
+            throw new Error(`Update applied but stash pop failed: ${err}`);
+        });
+        return { success: true, message: popResult };
     }
     catch (err) {
         return { success: false, message: String(err) };

@@ -5,10 +5,32 @@ echo ============================================
 echo Workshop.AI Windows Setup
 echo ============================================
 
-cd /d "%~dp0"
+set MODE=server
+choice /c SC /m "Is this a server install or client-only? (S=server, C=client)"
+if errorlevel 2 set MODE=client
+
+set ROOT=%~dp0
+cd /d "%ROOT%"
 if not exist package.json (
-  echo ERROR: package.json not found. Run this from the repo root.
-  exit /b 1
+  echo Repo not found in %ROOT%.
+  choice /m "Clone Workshop.AI here now"
+  if errorlevel 2 (
+    echo Setup cancelled.
+    exit /b 1
+  )
+  call :ensure_git
+  if exist workshop.ai (
+    if exist workshop.ai\package.json (
+      cd /d "%ROOT%workshop.ai"
+    ) else (
+      echo ERROR: %ROOT%workshop.ai exists but is not a Workshop.AI repo.
+      exit /b 1
+    )
+  ) else (
+    git clone https://github.com/etjones22/workshop.ai.git
+    if errorlevel 1 goto error
+    cd /d "%ROOT%workshop.ai"
+  )
 )
 
 set INSTALL_IDS=
@@ -16,7 +38,9 @@ set INSTALL_IDS=
 call :check_cmd node "Node.js" "OpenJS.NodeJS.LTS"
 call :check_cmd git "Git" "Git.Git"
 call :check_cmd python "Python" "Python.Python.3.12"
-call :check_cmd ollama "Ollama" "Ollama.Ollama"
+if /i "%MODE%"=="server" (
+  call :check_cmd ollama "Ollama" "Ollama.Ollama"
+)
 
 if defined INSTALL_IDS (
   where winget >nul 2>&1
@@ -42,7 +66,9 @@ if defined INSTALL_IDS (
 call :require_cmd node "Node.js"
 call :require_cmd git "Git"
 call :require_cmd python "Python"
-call :require_cmd ollama "Ollama"
+if /i "%MODE%"=="server" (
+  call :require_cmd ollama "Ollama"
+)
 
 echo.
 echo Installing npm dependencies...
@@ -55,10 +81,13 @@ call npm run build
 if errorlevel 1 goto error
 
 echo.
-choice /m "Pull Ollama model gpt-oss:20b now"
-if errorlevel 2 goto done
-call ollama pull gpt-oss:20b
-if errorlevel 1 goto error
+if /i "%MODE%"=="server" (
+  echo.
+  choice /m "Pull Ollama model gpt-oss:20b now"
+  if errorlevel 2 goto done
+  call ollama pull gpt-oss:20b
+  if errorlevel 1 goto error
+)
 
 :done
 echo.
@@ -75,6 +104,23 @@ if errorlevel 1 (
   echo Missing %LABEL%.
   if not "%ID%"=="" (
     set INSTALL_IDS=!INSTALL_IDS! %ID%
+  )
+)
+exit /b 0
+
+:ensure_git
+where git >nul 2>&1
+if errorlevel 1 (
+  where winget >nul 2>&1
+  if errorlevel 1 (
+    echo ERROR: Git is required to clone the repo, and winget is not available.
+    exit /b 1
+  )
+  echo Git is required. Installing via winget...
+  winget install -e --id Git.Git
+  if errorlevel 1 (
+    echo ERROR: Git installation failed.
+    exit /b 1
   )
 )
 exit /b 0

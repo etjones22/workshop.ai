@@ -20,6 +20,7 @@ export interface UpdateCheckResult {
   branch?: string;
   behind?: number;
   ahead?: number;
+  dirty?: boolean;
 }
 
 export async function checkForUpdates(repoDir: string): Promise<UpdateCheckResult> {
@@ -39,9 +40,7 @@ export async function checkForUpdates(repoDir: string): Promise<UpdateCheckResul
   }
 
   const dirty = await git(["status", "--porcelain"]).catch(() => "");
-  if (dirty.trim().length > 0) {
-    return { status: "dirty", message: "Working tree has uncommitted changes" };
-  }
+  const isDirty = dirty.trim().length > 0;
 
   await git(["fetch", "--quiet", "origin"]).catch((err) => {
     throw new Error(`Failed to fetch origin: ${err}`);
@@ -71,10 +70,10 @@ export async function checkForUpdates(repoDir: string): Promise<UpdateCheckResul
     .map((value) => (Number.isNaN(value) ? 0 : value));
 
   if (behind > 0) {
-    return { status: "update-available", localSha, remoteSha, branch, behind, ahead };
+    return { status: "update-available", localSha, remoteSha, branch, behind, ahead, dirty: isDirty };
   }
 
-  return { status: "up-to-date", localSha, remoteSha, branch, behind, ahead };
+  return { status: "up-to-date", localSha, remoteSha, branch, behind, ahead, dirty: isDirty };
 }
 
 export async function applyUpdate(repoDir: string): Promise<{ success: boolean; message?: string }> {
@@ -86,6 +85,26 @@ export async function applyUpdate(repoDir: string): Promise<{ success: boolean; 
   try {
     await git(["pull", "--ff-only"]);
     return { success: true };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+export async function applyUpdateWithStash(
+  repoDir: string
+): Promise<{ success: boolean; message?: string }> {
+  const git = await createGitRunner(repoDir);
+  if (!git) {
+    return { success: false, message: "git is not available on PATH" };
+  }
+
+  try {
+    await git(["stash", "push", "-u", "-m", "workshop-auto-update"]);
+    await git(["pull", "--ff-only"]);
+    const popResult = await git(["stash", "pop"]).catch((err) => {
+      throw new Error(`Update applied but stash pop failed: ${err}`);
+    });
+    return { success: true, message: popResult };
   } catch (err) {
     return { success: false, message: String(err) };
   }

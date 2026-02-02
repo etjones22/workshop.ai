@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { createAgentSession, runAgent } from "./agent/loop.js";
 import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
 import { createSpinner } from "./util/spinner.js";
-import { applyUpdate, checkForUpdates } from "./util/updater.js";
+import { applyUpdate, applyUpdateWithStash, checkForUpdates } from "./util/updater.js";
 import { colors } from "./util/colors.js";
 import { createPushToTalk } from "./util/speechToText.js";
 import { createProgressBar } from "./util/progress.js";
@@ -406,17 +406,16 @@ async function maybeUpdate(prompt: (question: string) => Promise<boolean>): Prom
     if (!approved) {
       return false;
     }
-    const update = await applyUpdate(process.cwd());
+    const update = result.dirty ? await applyUpdateWithStash(process.cwd()) : await applyUpdate(process.cwd());
     if (update.success) {
-      console.log(colors.success("Updated to latest. Please restart the CLI to use the new version."));
+      if (result.dirty) {
+        console.log(colors.success("Updated to latest (local changes stashed and restored). Restart the CLI."));
+      } else {
+        console.log(colors.success("Updated to latest. Please restart the CLI to use the new version."));
+      }
       return true;
     }
     console.warn(colors.warn(update.message ?? "Update failed."));
-    return false;
-  }
-
-  if (result.status === "dirty") {
-    console.warn(colors.warn("Update skipped: working tree has uncommitted changes."));
     return false;
   }
 
