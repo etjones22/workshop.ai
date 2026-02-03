@@ -253,7 +253,7 @@ program
       const autoApprove = options.autoApprove ?? false;
       const maxSteps = options.maxSteps ?? 12;
       const checkUpdates = (options as { checkUpdates?: boolean }).checkUpdates ?? true;
-      const pushToTalk = options.pushToTalk ?? true;
+      let enablePushToTalk = options.pushToTalk ?? true;
       const remote = options.remote;
       const token = options.token;
       const userId = options.user;
@@ -264,6 +264,18 @@ program
         if (updated) {
           rl.close();
           return;
+        }
+      }
+      if (enablePushToTalk) {
+        console.log(
+          colors.warn(
+            "Push-to-talk uses a global hotkey listener (Ctrl+Win) which some antivirus tools flag as keylogger behavior."
+          )
+        );
+        const answer = await rl.question(colors.prompt("Enable push-to-talk for this session? (y/N) "));
+        enablePushToTalk = parseYesNo(answer);
+        if (!enablePushToTalk) {
+          console.log(colors.info("Push-to-talk disabled for this session."));
         }
       }
       const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
@@ -303,7 +315,7 @@ program
 
       let ptt: ReturnType<typeof createPushToTalk> | null = null;
       let awaitingInput = false;
-      if (pushToTalk) {
+      if (enablePushToTalk) {
         const downloadProgress = createProgressBar(colors.info("Downloading Vosk model"));
         ptt = createPushToTalk({
           onTranscript: (text) => {

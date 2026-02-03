@@ -94,7 +94,7 @@ async function ensureVoskModel(options: VoskSetupOptions): Promise<string> {
 
   const tempDir = path.join(baseDir, `tmp-${Date.now()}`);
   await fs.mkdir(tempDir, { recursive: true });
-  await pipeline(createReadStream(zipPath), unzipper.Extract({ path: tempDir }));
+  await extractZipToDir(zipPath, tempDir);
 
   const modelDirName = await findExtractedModelDir(tempDir);
   if (!modelDirName) {
@@ -138,6 +138,39 @@ async function downloadWithProgress(url: string, dest: string, progress?: Progre
   await pipeline(stream, out);
   progress?.update(total || received, total || received);
   progress?.done();
+}
+
+async function extractZipToDir(zipPath: string, destDir: string): Promise<void> {
+  const directory = await unzipper.Open.file(zipPath);
+  const baseResolved = path.resolve(destDir);
+
+  for (const entry of directory.files) {
+    const resolved = resolveZipEntryPath(baseResolved, entry.path);
+    if (!resolved) {
+      continue;
+    }
+    if (entry.type === "Directory") {
+      await fs.mkdir(resolved, { recursive: true });
+      continue;
+    }
+    if (entry.type !== "File") {
+      continue;
+    }
+    await fs.mkdir(path.dirname(resolved), { recursive: true });
+    await pipeline(entry.stream(), createWriteStream(resolved));
+  }
+}
+
+function resolveZipEntryPath(baseResolved: string, entryPath: string): string | null {
+  const cleaned = entryPath.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!cleaned || cleaned.includes("..")) {
+    return null;
+  }
+  const resolved = path.resolve(baseResolved, cleaned);
+  if (resolved === baseResolved || resolved.startsWith(`${baseResolved}${path.sep}`)) {
+    return resolved;
+  }
+  return null;
 }
 
 async function findExtractedModelDir(tempDir: string): Promise<string | null> {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createWriteStream, createReadStream } from "node:fs";
+import { createWriteStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFile } from "node:child_process";
@@ -63,7 +63,7 @@ async function ensureVoskModel(options) {
     await downloadWithProgress(modelUrl, zipPath, options.progress);
     const tempDir = path.join(baseDir, `tmp-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
-    await pipeline(createReadStream(zipPath), unzipper.Extract({ path: tempDir }));
+    await extractZipToDir(zipPath, tempDir);
     const modelDirName = await findExtractedModelDir(tempDir);
     if (!modelDirName) {
         throw new Error("Failed to locate extracted Vosk model directory");
@@ -99,6 +99,36 @@ async function downloadWithProgress(url, dest, progress) {
     await pipeline(stream, out);
     progress?.update(total || received, total || received);
     progress?.done();
+}
+async function extractZipToDir(zipPath, destDir) {
+    const directory = await unzipper.Open.file(zipPath);
+    const baseResolved = path.resolve(destDir);
+    for (const entry of directory.files) {
+        const resolved = resolveZipEntryPath(baseResolved, entry.path);
+        if (!resolved) {
+            continue;
+        }
+        if (entry.type === "Directory") {
+            await fs.mkdir(resolved, { recursive: true });
+            continue;
+        }
+        if (entry.type !== "File") {
+            continue;
+        }
+        await fs.mkdir(path.dirname(resolved), { recursive: true });
+        await pipeline(entry.stream(), createWriteStream(resolved));
+    }
+}
+function resolveZipEntryPath(baseResolved, entryPath) {
+    const cleaned = entryPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!cleaned || cleaned.includes("..")) {
+        return null;
+    }
+    const resolved = path.resolve(baseResolved, cleaned);
+    if (resolved === baseResolved || resolved.startsWith(`${baseResolved}${path.sep}`)) {
+        return resolved;
+    }
+    return null;
 }
 async function findExtractedModelDir(tempDir) {
     const entries = await fs.readdir(tempDir, { withFileTypes: true });

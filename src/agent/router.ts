@@ -15,10 +15,10 @@ export function routeAgent(request: string): RoutedAgent | null {
 }
 
 function isEmailDraftRequest(text: string): boolean {
-  if (text.includes("email") || text.includes("e-mail")) {
-    if (text.includes("draft") || text.includes("reply") || text.includes("respond") || text.includes("compose")) {
-      return true;
-    }
+  const hasEmailWord = /\b(e-?mail)\b/.test(text);
+  const hasEmailIntent = /\b(draft|reply|respond|compose|write)\b/.test(text);
+  if (hasEmailWord && hasEmailIntent) {
+    return true;
   }
   if (text.includes("draft a reply") || text.includes("write a reply") || text.includes("reply to")) {
     return true;
