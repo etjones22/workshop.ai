@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { createAgentSession } from "./agent/loop.js";
 import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
 import { createSpinner } from "./util/spinner.js";
-import { applyUpdate, applyUpdateWithStash, checkForUpdates } from "./util/updater.js";
+import { applyForceUpdate, applyUpdate, applyUpdateWithStash, checkForUpdates } from "./util/updater.js";
 import { colors } from "./util/colors.js";
 import { createPushToTalk } from "./util/speechToText.js";
 import { createProgressBar } from "./util/progress.js";
@@ -403,9 +403,12 @@ async function maybeUpdate(prompt) {
         if (!countdownResult) {
             return false;
         }
-        const update = result.dirty ? await applyUpdateWithStash(process.cwd()) : await applyUpdate(process.cwd());
+        const update = await attemptUpdate(process.cwd(), result.dirty ?? false);
         if (update.success) {
-            if (result.dirty) {
+            if (update.forced) {
+                console.log(colors.success("Updated to latest (forced reset). Please restart the CLI to use the new version."));
+            }
+            else if (result.dirty) {
                 console.log(colors.success("Updated to latest (local changes stashed and restored). Restart the CLI."));
             }
             else {
@@ -420,6 +423,22 @@ async function maybeUpdate(prompt) {
         console.warn(colors.warn(result.message ?? "Update check failed."));
     }
     return false;
+}
+async function attemptUpdate(repoDir, dirty) {
+    const updater = dirty ? applyUpdateWithStash : applyUpdate;
+    let lastMessage;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const result = await updater(repoDir);
+        if (result.success) {
+            return { success: true, forced: false, message: result.message };
+        }
+        lastMessage = result.message ?? lastMessage;
+    }
+    const forced = await applyForceUpdate(repoDir);
+    if (forced.success) {
+        return { success: true, forced: true };
+    }
+    return { success: false, forced: true, message: forced.message ?? lastMessage };
 }
 function parseYesNo(answer) {
     const normalized = answer.trim().toLowerCase();

@@ -48,9 +48,9 @@ Chat (interactive):
 npm start -- chat
 ```
 
-Chat with push-to-talk:
+Push-to-talk is enabled by default in chat. Disable it with:
 ```
-npm start -- chat --push-to-talk
+npm start -- chat --no-push-to-talk
 ```
 Hold **Ctrl + Win** while speaking, release to transcribe and insert text into the prompt.
 
@@ -78,9 +78,22 @@ npm start -- chat --remote http://YOUR_HOST:8080 --token YOUR_TOKEN --user dev1
 - `WHISPER_CPP_BIN` / `WHISPER_CPP_MODEL` (if using whisper.cpp)
 
 ## Commands
-- `workshop init` — create workspace and example files
-- `workshop run "<request>"` — one-shot run
-- `workshop chat` — interactive chat (default)
+- `workshop init` -- create workspace and example files
+- `workshop run "<request>"` -- one-shot run
+- `workshop chat` -- interactive chat (default)
+
+## Updates
+Auto-update runs on startup (unless disabled) and will count down before pulling.
+
+Force update to the latest remote (discard local changes):
+```
+git fetch origin
+git reset --hard origin/main
+```
+Optional cleanup of untracked files:
+```
+git clean -fd
+```
 
 ## Notes
 - The workspace root is `./workspace`. File tools are sandboxed to this directory.

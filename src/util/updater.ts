@@ -110,6 +110,25 @@ export async function applyUpdateWithStash(
   }
 }
 
+export async function applyForceUpdate(repoDir: string): Promise<{ success: boolean; message?: string }> {
+  const git = await createGitRunner(repoDir);
+  if (!git) {
+    return { success: false, message: "git is not available on PATH" };
+  }
+
+  try {
+    await git(["fetch", "origin"]);
+    const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "HEAD");
+    const remoteRef = await resolveRemoteRef(git, branch);
+    const target = remoteRef ?? "origin/main";
+    await git(["reset", "--hard", target]);
+    await git(["clean", "-fd"]);
+    return { success: true };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
 async function createGitRunner(repoDir: string) {
   try {
     await execFileAsync("git", ["--version"], { cwd: repoDir, windowsHide: true });
