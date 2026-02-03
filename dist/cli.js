@@ -105,6 +105,9 @@ program
         const remote = options.remote;
         const token = options.token;
         const userId = options.user;
+        const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
+        const stats = new ConversationStats();
+        const handleAgentOutput = makeAgentOutputHandler(spinner);
         if (checkUpdates) {
             const updated = await maybeUpdate(async (question) => {
                 const rl = await createChatInterface();
@@ -117,8 +120,6 @@ program
             }
         }
         if (remote) {
-            const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
-            const stats = new ConversationStats();
             const remoteSession = createRemoteSession({ baseUrl: remote, token, userId });
             let streamed = false;
             stats.addInput(request);
@@ -134,7 +135,7 @@ program
                     }
                     stats.addOutputChunk(tokenChunk);
                     process.stdout.write(colors.assistant(tokenChunk));
-                });
+                }, handleAgentOutput);
                 spinner.stop();
                 if (streamed) {
                     process.stdout.write("\n");
@@ -152,8 +153,6 @@ program
             }
             return;
         }
-        const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
-        const stats = new ConversationStats();
         let streamed = false;
         const session = await createAgentSession({
             autoApprove,
@@ -181,7 +180,8 @@ program
                 }
                 stats.addOutputChunk(token);
                 process.stdout.write(colors.assistant(token));
-            }
+            },
+            onAgent: handleAgentOutput
         });
         spinner.start();
         try {
@@ -239,6 +239,7 @@ program
         const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
         const stats = new ConversationStats();
         const streamState = { active: false };
+        const handleAgentOutput = makeAgentOutputHandler(spinner);
         const remoteSession = remote ? createRemoteSession({ baseUrl: remote, token, userId }) : null;
         const session = remote
             ? null
@@ -266,7 +267,8 @@ program
                     }
                     stats.addOutputChunk(tokenChunk);
                     process.stdout.write(colors.assistant(tokenChunk));
-                }
+                },
+                onAgent: handleAgentOutput
             });
         let ptt = null;
         let awaitingInput = false;
@@ -351,7 +353,7 @@ program
                         }
                         stats.addOutputChunk(tokenChunk);
                         process.stdout.write(colors.assistant(tokenChunk));
-                    })
+                    }, handleAgentOutput)
                     : await session.runTurn(input);
                 spinner.stop();
                 if (streamState.active) {
@@ -491,6 +493,18 @@ function printStats(stats) {
         `elapsed~${snapshot.elapsedSeconds.toFixed(1)}s`
     ];
     console.log(colors.dim(`Stats: ${parts.join(" | ")}`));
+}
+function makeAgentOutputHandler(spinner) {
+    return (event) => {
+        const wasSpinning = spinner.isSpinning();
+        if (wasSpinning) {
+            spinner.stop();
+        }
+        console.log(colors.tool(`[Agent (${event.name})]: ${event.content}`));
+        if (wasSpinning) {
+            spinner.start();
+        }
+    };
 }
 function printBanner() {
     console.log(colors.info(asciiArt));

@@ -2,6 +2,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { OllamaClient, type ChatMessage, type ToolCall, type ToolCallDelta } from "../llm/ollamaClient.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
+import { routeAgent } from "./router.js";
+import type { AgentProfile } from "./agents.js";
 import { createToolRegistry } from "../tools/index.js";
 import { createSessionLogger } from "../util/logger.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
@@ -17,12 +19,16 @@ export interface AgentSessionOptions {
   maxSteps: number;
   confirm?: (question: string) => Promise<boolean>;
   onToken?: (token: string) => void;
+  onAgent?: (event: { name: string; content: string }) => void;
   workspaceRoot?: string;
   baseDir?: string;
 }
 
 export interface AgentSession {
-  runTurn: (request: string, options?: { onToken?: (token: string) => void }) => Promise<string>;
+  runTurn: (
+    request: string,
+    options?: { onToken?: (token: string) => void; onAgent?: (event: { name: string; content: string }) => void }
+  ) => Promise<string>;
   reset: () => Promise<void>;
 }
 
@@ -43,10 +49,33 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
   let messages: ChatMessage[] = [{ role: "system", content: buildSystemPrompt(options.autoApprove) }];
   await logger.log({ type: "message", role: "system", content: messages[0].content });
 
-  async function runTurn(request: string, runOptions?: { onToken?: (token: string) => void }): Promise<string> {
+  async function runTurn(
+    request: string,
+    runOptions?: { onToken?: (token: string) => void; onAgent?: (event: { name: string; content: string }) => void }
+  ): Promise<string> {
     const onToken = runOptions?.onToken ?? options.onToken;
+    const onAgent = runOptions?.onAgent ?? options.onAgent;
     messages.push({ role: "user", content: request });
     await logger.log({ type: "message", role: "user", content: request });
+
+    const routed = routeAgent(request);
+    if (routed) {
+      const draft = await runSpecialistAgent(client, routed.agent, request);
+      if (draft.trim()) {
+        onAgent?.({ name: routed.agent.name, content: draft });
+        await logger.log({
+          type: "agent",
+          id: routed.agent.id,
+          name: routed.agent.name,
+          reason: routed.reason,
+          content: draft
+        });
+        messages.push({
+          role: "system",
+          content: buildAgentContext(routed.agent, draft)
+        });
+      }
+    }
 
     for (let step = 0; step < options.maxSteps; step += 1) {
       let message: ChatMessage | null = null;
@@ -196,6 +225,30 @@ async function streamAssistantResponse(
     message.tool_calls = toolCalls;
   }
   return message;
+}
+
+function buildAgentContext(agent: AgentProfile, content: string): string {
+  return [
+    `Specialist agent (${agent.name}) output:`,
+    content,
+    "Use this as draft guidance and respond to the user."
+  ].join("\n");
+}
+
+async function runSpecialistAgent(
+  client: OllamaClient,
+  agent: AgentProfile,
+  request: string
+): Promise<string> {
+  const response = await client.chat({
+    messages: [
+      { role: "system", content: agent.systemPrompt },
+      { role: "user", content: request }
+    ],
+    toolChoice: "none",
+    temperature: 0.2
+  });
+  return response.choices[0]?.message?.content ?? "";
 }
 
 function mergeToolCallDeltas(target: ToolCall[], deltas: ToolCallDelta[]): void {

@@ -131,6 +131,12 @@ export async function startServer(options: ServerOptions): Promise<http.Server> 
               outputTokens += estimateTokens(token);
               outputChars += token.length;
               writeSse(res, { type: "token", token });
+            },
+            onAgent: (event) => {
+              if (closed) {
+                return;
+              }
+              writeSse(res, { type: "agent", name: event.name, content: event.content });
             }
           });
           if (!closed) {

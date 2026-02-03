@@ -1,6 +1,6 @@
 export function createRemoteSession(options) {
     let sessionId;
-    const send = async (message, onToken) => {
+    const send = async (message, onToken, onAgent) => {
         const payload = { message };
         if (sessionId) {
             payload.sessionId = sessionId;
@@ -25,6 +25,9 @@ export function createRemoteSession(options) {
             else if (event.type === "token" && typeof event.token === "string") {
                 output += event.token;
                 onToken?.(event.token);
+            }
+            else if (event.type === "agent" && typeof event.name === "string" && typeof event.content === "string") {
+                onAgent?.({ name: event.name, content: event.content });
             }
             else if (event.type === "error") {
                 throw new Error(event.message || "Remote error");

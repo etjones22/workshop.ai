@@ -6,14 +6,22 @@ export interface RemoteClientOptions {
 
 export interface RemoteSession {
   sessionId?: string;
-  send: (message: string, onToken?: (token: string) => void) => Promise<string>;
+  send: (
+    message: string,
+    onToken?: (token: string) => void,
+    onAgent?: (event: { name: string; content: string }) => void
+  ) => Promise<string>;
   reset: () => Promise<void>;
 }
 
 export function createRemoteSession(options: RemoteClientOptions): RemoteSession {
   let sessionId: string | undefined;
 
-  const send = async (message: string, onToken?: (token: string) => void): Promise<string> => {
+  const send = async (
+    message: string,
+    onToken?: (token: string) => void,
+    onAgent?: (event: { name: string; content: string }) => void
+  ): Promise<string> => {
     const payload: Record<string, unknown> = { message };
     if (sessionId) {
       payload.sessionId = sessionId;
@@ -40,6 +48,8 @@ export function createRemoteSession(options: RemoteClientOptions): RemoteSession
       } else if (event.type === "token" && typeof event.token === "string") {
         output += event.token;
         onToken?.(event.token);
+      } else if (event.type === "agent" && typeof event.name === "string" && typeof event.content === "string") {
+        onAgent?.({ name: event.name, content: event.content });
       } else if (event.type === "error") {
         throw new Error(event.message || "Remote error");
       }

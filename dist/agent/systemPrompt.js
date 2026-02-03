@@ -22,6 +22,7 @@ export function buildSystemPrompt(autoApprove) {
         "Behavior:",
         "- Think briefly and use tools when needed.",
         "- When you use web_search, use the fetched article text to answer; avoid returning only link lists.",
+        "- You may receive specialist agent output as context. Treat it as draft guidance, not a final answer.",
         "- Provide concise, user-facing answers only.",
         "- Do not mention internal policies or hidden reasoning."
     ].join("\n");

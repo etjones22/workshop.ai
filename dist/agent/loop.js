@@ -2,6 +2,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { OllamaClient } from "../llm/ollamaClient.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
+import { routeAgent } from "./router.js";
 import { createToolRegistry } from "../tools/index.js";
 import { createSessionLogger } from "../util/logger.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
@@ -21,8 +22,27 @@ export async function createAgentSession(options) {
     await logger.log({ type: "message", role: "system", content: messages[0].content });
     async function runTurn(request, runOptions) {
         const onToken = runOptions?.onToken ?? options.onToken;
+        const onAgent = runOptions?.onAgent ?? options.onAgent;
         messages.push({ role: "user", content: request });
         await logger.log({ type: "message", role: "user", content: request });
+        const routed = routeAgent(request);
+        if (routed) {
+            const draft = await runSpecialistAgent(client, routed.agent, request);
+            if (draft.trim()) {
+                onAgent?.({ name: routed.agent.name, content: draft });
+                await logger.log({
+                    type: "agent",
+                    id: routed.agent.id,
+                    name: routed.agent.name,
+                    reason: routed.reason,
+                    content: draft
+                });
+                messages.push({
+                    role: "system",
+                    content: buildAgentContext(routed.agent, draft)
+                });
+            }
+        }
         for (let step = 0; step < options.maxSteps; step += 1) {
             let message = null;
             if (onToken) {
@@ -148,6 +168,24 @@ async function streamAssistantResponse(client, messages, tools, onToken) {
         message.tool_calls = toolCalls;
     }
     return message;
+}
+function buildAgentContext(agent, content) {
+    return [
+        `Specialist agent (${agent.name}) output:`,
+        content,
+        "Use this as draft guidance and respond to the user."
+    ].join("\n");
+}
+async function runSpecialistAgent(client, agent, request) {
+    const response = await client.chat({
+        messages: [
+            { role: "system", content: agent.systemPrompt },
+            { role: "user", content: request }
+        ],
+        toolChoice: "none",
+        temperature: 0.2
+    });
+    return response.choices[0]?.message?.content ?? "";
 }
 function mergeToolCallDeltas(target, deltas) {
     for (const delta of deltas) {
