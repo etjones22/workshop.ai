@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import { OllamaClient } from "../llm/ollamaClient.js";
+import { DEFAULT_CONFIG } from "../util/config.js";
 import { ensureWorkspaceRoot, resolveSandboxPath } from "../util/sandboxPath.js";
 import { webFetch } from "./web.js";
 
@@ -29,9 +30,9 @@ export interface DocSummarizeResult {
 }
 
 const defaultClient = new OllamaClient({
-  baseUrl: "http://localhost:11434/v1",
-  apiKey: "ollama",
-  model: "gpt-oss:20b"
+  baseUrl: DEFAULT_CONFIG.llm.baseUrl,
+  apiKey: DEFAULT_CONFIG.llm.apiKey,
+  model: DEFAULT_CONFIG.llm.model
 });
 
 const DEFAULT_MAX_CHARS = 60000;

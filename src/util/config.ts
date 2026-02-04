@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 
 export interface LlmConfig {
+  provider: "ollama" | "openai";
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -37,6 +38,7 @@ export type PartialWorkshopConfig = Partial<{
 
 export const DEFAULT_CONFIG: WorkshopConfig = {
   llm: {
+    provider: "ollama",
     baseUrl: "http://localhost:11434/v1",
     apiKey: "ollama",
     model: "glm-4.7-flash"
@@ -61,7 +63,8 @@ export const DEFAULT_CONFIG: WorkshopConfig = {
 export async function loadConfig(baseDir: string): Promise<WorkshopConfig> {
   const fileConfig = await readConfigFile(baseDir);
   const envConfig = readEnvConfig();
-  return mergeConfig(DEFAULT_CONFIG, fileConfig, envConfig);
+  const merged = mergeConfig(DEFAULT_CONFIG, fileConfig, envConfig);
+  return applyProviderDefaults(merged, fileConfig, envConfig);
 }
 
 export function mergeConfig(
@@ -81,6 +84,9 @@ export function mergeConfig(
       continue;
     }
     if (override.llm) {
+      if (override.llm.provider !== undefined) {
+        merged.llm.provider = override.llm.provider as "ollama" | "openai";
+      }
       if (override.llm.baseUrl !== undefined) {
         merged.llm.baseUrl = override.llm.baseUrl;
       }
@@ -158,6 +164,7 @@ function sanitizeConfig(input: unknown): PartialWorkshopConfig {
   if (isObject(data.llm)) {
     const llm = data.llm as Record<string, unknown>;
     config.llm = {
+      provider: asProvider(llm.provider),
       baseUrl: asString(llm.baseUrl),
       apiKey: asString(llm.apiKey),
       model: asString(llm.model)
@@ -201,11 +208,13 @@ function sanitizeConfig(input: unknown): PartialWorkshopConfig {
 function readEnvConfig(): PartialWorkshopConfig {
   const config: PartialWorkshopConfig = {};
 
+  const provider = asProvider(envString("WORKSHOP_LLM_PROVIDER"));
   const baseUrl = envString("WORKSHOP_BASE_URL");
   const apiKey = envString("WORKSHOP_API_KEY");
   const model = envString("WORKSHOP_MODEL");
-  if (baseUrl || apiKey || model) {
+  if (provider || baseUrl || apiKey || model) {
     config.llm = {
+      provider: provider ?? undefined,
       baseUrl: baseUrl ?? undefined,
       apiKey: apiKey ?? undefined,
       model: model ?? undefined
@@ -245,6 +254,66 @@ function readEnvConfig(): PartialWorkshopConfig {
   return config;
 }
 
+function applyProviderDefaults(
+  merged: WorkshopConfig,
+  fileConfig: PartialWorkshopConfig | null,
+  envConfig: PartialWorkshopConfig
+): WorkshopConfig {
+  const provider = merged.llm.provider;
+  const baseUrlExplicit = Boolean(fileConfig?.llm?.baseUrl ?? envConfig.llm?.baseUrl);
+  const modelExplicit = Boolean(fileConfig?.llm?.model ?? envConfig.llm?.model);
+  const apiKeyExplicit = Boolean(fileConfig?.llm?.apiKey ?? envConfig.llm?.apiKey);
+
+  if (provider === "openai") {
+    if (!baseUrlExplicit) {
+      merged.llm.baseUrl = "https://api.openai.com/v1";
+    }
+    if (!modelExplicit) {
+      merged.llm.model = "gpt-4o-mini";
+    }
+    if (!apiKeyExplicit) {
+      merged.llm.apiKey = "";
+    }
+  }
+
+  if (provider === "ollama") {
+    if (!baseUrlExplicit) {
+      merged.llm.baseUrl = "http://localhost:11434/v1";
+    }
+    if (!modelExplicit) {
+      merged.llm.model = DEFAULT_CONFIG.llm.model;
+    }
+    if (!apiKeyExplicit) {
+      merged.llm.apiKey = "ollama";
+    }
+  }
+
+  return merged;
+}
+
+export function getPrimaryConfigPath(baseDir: string): string {
+  return path.join(baseDir, "workshop.config.json");
+}
+
+export async function ensureConfigFile(baseDir: string): Promise<string> {
+  const filePath = getPrimaryConfigPath(baseDir);
+  try {
+    await fs.access(filePath);
+    return filePath;
+  } catch {
+    await fs.writeFile(filePath, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf8");
+    return filePath;
+  }
+}
+
+export function redactConfig(config: WorkshopConfig): WorkshopConfig {
+  const copy: WorkshopConfig = JSON.parse(JSON.stringify(config));
+  if (copy.llm.apiKey) {
+    copy.llm.apiKey = "***";
+  }
+  return copy;
+}
+
 function envString(key: string): string | undefined {
   const value = process.env[key];
   return value && value.trim() ? value.trim() : undefined;
@@ -277,6 +346,20 @@ function envBoolean(key: string): boolean | undefined {
 function asString(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
+  }
+  return undefined;
+}
+
+function asProvider(value: unknown): "ollama" | "openai" | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "ollama") {
+    return "ollama";
+  }
+  if (normalized === "openai") {
+    return "openai";
   }
   return undefined;
 }

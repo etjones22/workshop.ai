@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { createAgentSession, runAgent } from "./agent/loop.js";
 import { ensureWorkspaceRoot } from "./util/sandboxPath.js";
 import { createSpinner } from "./util/spinner.js";
@@ -14,7 +15,7 @@ import { createMarkdownStreamRenderer, renderMarkdownToAnsi } from "./util/markd
 import { startServer } from "./server/server.js";
 import { createRemoteSession } from "./util/remoteClient.js";
 import { formatVersionBanner, getVersionInfo } from "./util/version.js";
-import { DEFAULT_CONFIG, loadConfig } from "./util/config.js";
+import { DEFAULT_CONFIG, ensureConfigFile, loadConfig, redactConfig } from "./util/config.js";
 import { runHealthChecks } from "./util/health.js";
 
 const program = new Command();
@@ -65,8 +66,19 @@ program
   .description("Print the resolved Workshop.AI configuration")
   .action(async () => {
     try {
-      const config = await loadConfig(process.cwd());
-      console.log(JSON.stringify(config, null, 2));
+      const baseDir = process.cwd();
+      const config = await loadConfig(baseDir);
+      const filePath = await ensureConfigFile(baseDir);
+      console.log(colors.info(`Config file: ${filePath}`));
+      console.log(JSON.stringify(redactConfig(config), null, 2));
+      if (process.stdin.isTTY) {
+        const rl = await createChatInterface();
+        const answer = await rl.question(colors.prompt("Edit config now? (y/N) "));
+        rl.close();
+        if (parseYesNo(answer)) {
+          await openInEditor(filePath);
+        }
+      }
     } catch (err) {
       console.error(colors.error((err as Error).message));
       process.exitCode = 1;
@@ -709,6 +721,34 @@ async function attemptUpdate(
 function parseYesNo(answer: string): boolean {
   const normalized = answer.trim().toLowerCase();
   return normalized === "y" || normalized === "yes";
+}
+
+async function openInEditor(filePath: string): Promise<void> {
+  const editor = process.env.VISUAL || process.env.EDITOR;
+  let command = editor;
+  let args: string[] = [];
+
+  if (command) {
+    args = [filePath];
+  } else if (process.platform === "win32") {
+    command = "notepad";
+    args = [filePath];
+  } else {
+    command = "nano";
+    args = [filePath];
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command as string, args, { stdio: "inherit", shell: true });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code && code !== 0) {
+        reject(new Error(`Editor exited with code ${code}`));
+      } else {
+        resolve();
+      }
+    });
+  });
 }
 
 function resolveOption<T>(

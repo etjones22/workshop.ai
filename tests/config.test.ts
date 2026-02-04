@@ -45,6 +45,17 @@ describe("config loader", () => {
     expect(config.agent.maxSteps).toBe(7);
   });
 
+  it("uses openai defaults when provider is openai", async () => {
+    const dir = await makeTempDir();
+    const configPath = path.join(dir, "workshop.config.json");
+    await fs.writeFile(configPath, JSON.stringify({ llm: { provider: "openai" } }), "utf8");
+
+    const config = await loadConfig(dir);
+    expect(config.llm.provider).toBe("openai");
+    expect(config.llm.baseUrl).toBe("https://api.openai.com/v1");
+    expect(config.llm.model).toBe("gpt-4o-mini");
+  });
+
   it("mergeConfig applies overrides in order", () => {
     const merged = mergeConfig(DEFAULT_CONFIG, { agent: { maxSteps: 5 } }, { agent: { maxSteps: 9 } });
     expect(merged.agent.maxSteps).toBe(9);

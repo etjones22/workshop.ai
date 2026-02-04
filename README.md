@@ -70,6 +70,12 @@ npm start -- chat --remote http://YOUR_HOST:8080 --token YOUR_TOKEN --user dev1
 ### Search
 - `BRAVE_API_KEY` (optional, enables Brave Search; otherwise DuckDuckGo HTML scraping)
 
+### LLM Provider
+- `WORKSHOP_LLM_PROVIDER` = `ollama` | `openai`
+- `WORKSHOP_BASE_URL` (e.g. `http://localhost:11434/v1` or `https://api.openai.com/v1`)
+- `WORKSHOP_API_KEY` (OpenAI key or `ollama`)
+- `WORKSHOP_MODEL` (e.g. `glm-4.7-flash` or `gpt-4o-mini`)
+
 ### Speech-to-Text
 - `STT_ENGINE` = `vosk` | `whisper` | `auto` (default `vosk`)
 - `VOSK_MODEL_URL` (optional override for the Vosk model zip)
@@ -84,6 +90,7 @@ Example:
 ```
 {
   "llm": {
+    "provider": "ollama",
     "baseUrl": "http://localhost:11434/v1",
     "apiKey": "ollama",
     "model": "glm-4.7-flash"
