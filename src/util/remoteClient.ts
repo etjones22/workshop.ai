@@ -9,7 +9,8 @@ export interface RemoteSession {
   send: (
     message: string,
     onToken?: (token: string) => void,
-    onAgent?: (event: { name: string; content: string }) => void
+    onAgent?: (event: { name: string; content: string }) => void,
+    signal?: AbortSignal
   ) => Promise<string>;
   reset: () => Promise<void>;
 }
@@ -20,7 +21,8 @@ export function createRemoteSession(options: RemoteClientOptions): RemoteSession
   const send = async (
     message: string,
     onToken?: (token: string) => void,
-    onAgent?: (event: { name: string; content: string }) => void
+    onAgent?: (event: { name: string; content: string }) => void,
+    signal?: AbortSignal
   ): Promise<string> => {
     const payload: Record<string, unknown> = { message };
     if (sessionId) {
@@ -33,7 +35,8 @@ export function createRemoteSession(options: RemoteClientOptions): RemoteSession
     const response = await fetch(new URL("/chat", options.baseUrl).toString(), {
       method: "POST",
       headers: buildHeaders(options),
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal
     });
 
     if (!response.ok || !response.body) {

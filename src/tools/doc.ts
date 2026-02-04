@@ -39,8 +39,10 @@ const DEFAULT_CHUNK_CHARS = 12000;
 
 export async function docSummarize(
   workspaceRoot: string,
-  options: DocSummarizeOptions
+  options: DocSummarizeOptions,
+  client?: OllamaClient
 ): Promise<DocSummarizeResult> {
+  const llm = client ?? defaultClient;
   const source = String(options.source ?? "").trim();
   if (!source) {
     return {
@@ -75,7 +77,7 @@ export async function docSummarize(
     const chunkSummaries: string[] = [];
 
     for (let index = 0; index < chunks.length; index += 1) {
-      const chunkSummary = await summarizeChunk(defaultClient, chunks[index], {
+      const chunkSummary = await summarizeChunk(llm, chunks[index], {
         style,
         focus: options.focus,
         index,
@@ -103,7 +105,7 @@ export async function docSummarize(
     const summary =
       chunkSummaries.length === 1
         ? chunkSummaries[0]
-        : await summarizeCombined(defaultClient, chunkSummaries, style, options.focus);
+        : await summarizeCombined(llm, chunkSummaries, style, options.focus);
 
     return {
       source,

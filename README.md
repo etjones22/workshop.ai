@@ -77,6 +77,35 @@ npm start -- chat --remote http://YOUR_HOST:8080 --token YOUR_TOKEN --user dev1
 - `SOX_BIN` / `REC_BIN` (optional override for audio recorder path)
 - `WHISPER_CPP_BIN` / `WHISPER_CPP_MODEL` (if using whisper.cpp)
 
+## Config
+Configuration can be set via `workshop.config.json` in the repo root (or `./.workshop/config.json`). Precedence: CLI flags > env vars > config file > defaults.
+
+Example:
+```
+{
+  "llm": {
+    "baseUrl": "http://localhost:11434/v1",
+    "apiKey": "ollama",
+    "model": "gpt-oss:20b"
+  },
+  "agent": {
+    "autoApprove": false,
+    "maxSteps": 12
+  },
+  "updates": {
+    "checkOnStart": true
+  },
+  "speech": {
+    "enabled": true
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "token": ""
+  }
+}
+```
+
 ## Commands
 - `workshop init` -- create workspace and example files
 - `workshop run "<request>"` -- one-shot run

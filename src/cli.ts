@@ -14,6 +14,7 @@ import { renderMarkdownToAnsi } from "./util/markdown.js";
 import { startServer } from "./server/server.js";
 import { createRemoteSession } from "./util/remoteClient.js";
 import { formatVersionBanner, getVersionInfo } from "./util/version.js";
+import { DEFAULT_CONFIG, loadConfig } from "./util/config.js";
 
 const program = new Command();
 program
@@ -63,23 +64,28 @@ program
   .description("Start Workshop.AI server for remote clients")
   .option("--host <host>", "Host to bind", "0.0.0.0")
   .option("--port <port>", "Port to bind", (value) => parseInt(value, 10), 8080)
-  .option("--token <token>", "Auth token for remote clients", process.env.WORKSHOP_SERVER_TOKEN)
+  .option("--token <token>", "Auth token for remote clients")
   .option("--max-steps <n>", "Max agent steps per request", (value) => parseInt(value, 10), 12)
   .option("--auto-approve", "Auto-approve write tools", false)
-  .action(async (options: { host?: string; port?: number; token?: string; maxSteps?: number; autoApprove?: boolean }) => {
+  .action(async (
+    options: { host?: string; port?: number; token?: string; maxSteps?: number; autoApprove?: boolean },
+    command: Command
+  ) => {
     try {
-      const host = options.host ?? "0.0.0.0";
-      const port = options.port ?? 8080;
-      const maxSteps = options.maxSteps ?? 12;
-      const autoApprove = options.autoApprove ?? false;
-      const token = options.token;
+      const config = await loadConfig(process.cwd());
+      const host = resolveOption(command, "host", options.host, config.server.host);
+      const port = resolveOption(command, "port", options.port, config.server.port);
+      const maxSteps = resolveOption(command, "maxSteps", options.maxSteps, config.agent.maxSteps);
+      const autoApprove = resolveOption(command, "autoApprove", options.autoApprove, config.agent.autoApprove);
+      const token = resolveOption(command, "token", options.token, config.server.token);
       await startServer({
         host,
         port,
         token,
         maxSteps,
         autoApprove,
-        baseDir: process.cwd()
+        baseDir: process.cwd(),
+        llmConfig: config.llm
       });
       console.log(colors.info(`Workshop.AI server listening on http://${host}:${port}`));
       if (token) {
@@ -112,13 +118,20 @@ program
         remote?: string;
         token?: string;
         user?: string;
-      }
+      },
+      command: Command
     ) => {
     try {
+      const config = await loadConfig(process.cwd());
       const request = requestParts.join(" ");
-      const autoApprove = options.autoApprove ?? false;
-      const maxSteps = options.maxSteps ?? 12;
-      const checkUpdates = (options as { checkUpdates?: boolean }).checkUpdates ?? true;
+      const autoApprove = resolveOption(command, "autoApprove", options.autoApprove, config.agent.autoApprove);
+      const maxSteps = resolveOption(command, "maxSteps", options.maxSteps, config.agent.maxSteps);
+      const checkUpdates = resolveOption(
+        command,
+        "checkUpdates",
+        (options as { checkUpdates?: boolean }).checkUpdates,
+        config.updates.checkOnStart
+      );
       const remote = options.remote;
       const token = options.token;
       const userId = options.user;
@@ -141,10 +154,18 @@ program
       if (remote) {
         const remoteSession = createRemoteSession({ baseUrl: remote, token, userId });
         let streamed = false;
+        let cleanupEsc = () => undefined;
         stats.addInput(request);
         stats.startResponse();
         spinner.start();
         try {
+          const controller = new AbortController();
+          cleanupEsc = attachEscCancel(controller, () => {
+            if (spinner.isSpinning()) {
+              spinner.stop();
+            }
+            console.log(colors.warn("Request cancelled."));
+          });
           const response = await remoteSession.send(
             request,
             (tokenChunk) => {
@@ -157,8 +178,10 @@ program
               stats.addOutputChunk(tokenChunk);
               process.stdout.write(colors.assistant(tokenChunk));
             },
-            handleAgentOutput
+            handleAgentOutput,
+            controller.signal
           );
+          cleanupEsc();
           spinner.stop();
           if (streamed) {
             process.stdout.write("\n");
@@ -169,7 +192,11 @@ program
           stats.finishResponse();
           printStats(stats);
         } catch (err) {
+          cleanupEsc();
           spinner.stop();
+          if (isAbortError(err)) {
+            return;
+          }
           throw err;
         }
         return;
@@ -179,6 +206,7 @@ program
       const session = await createAgentSession({
         autoApprove,
         maxSteps,
+        llmConfig: config.llm,
         confirm: async (question: string) => {
           const wasSpinning = spinner.isSpinning();
           if (wasSpinning) {
@@ -206,11 +234,20 @@ program
         onAgent: handleAgentOutput
       });
 
+      const controller = new AbortController();
+      let cleanupEsc = () => undefined;
+      cleanupEsc = attachEscCancel(controller, () => {
+        if (spinner.isSpinning()) {
+          spinner.stop();
+        }
+        console.log(colors.warn("Request cancelled."));
+      });
       spinner.start();
       try {
         stats.addInput(request);
         stats.startResponse();
-        const result = await session.runTurn(request);
+        const result = await session.runTurn(request, { signal: controller.signal });
+        cleanupEsc();
         spinner.stop();
         if (streamed) {
           process.stdout.write("\n");
@@ -221,7 +258,11 @@ program
         stats.finishResponse();
         printStats(stats);
       } catch (err) {
+        cleanupEsc();
         spinner.stop();
+        if (isAbortError(err)) {
+          return;
+        }
         throw err;
       }
     } catch (err) {
@@ -248,12 +289,18 @@ program
       remote?: string;
       token?: string;
       user?: string;
-    }) => {
+    }, command: Command) => {
     try {
-      const autoApprove = options.autoApprove ?? false;
-      const maxSteps = options.maxSteps ?? 12;
-      const checkUpdates = (options as { checkUpdates?: boolean }).checkUpdates ?? true;
-      let enablePushToTalk = options.pushToTalk ?? true;
+      const config = await loadConfig(process.cwd());
+      const autoApprove = resolveOption(command, "autoApprove", options.autoApprove, config.agent.autoApprove);
+      const maxSteps = resolveOption(command, "maxSteps", options.maxSteps, config.agent.maxSteps);
+      const checkUpdates = resolveOption(
+        command,
+        "checkUpdates",
+        (options as { checkUpdates?: boolean }).checkUpdates,
+        config.updates.checkOnStart
+      );
+      let enablePushToTalk = resolveOption(command, "pushToTalk", options.pushToTalk, config.speech.enabled);
       const remote = options.remote;
       const token = options.token;
       const userId = options.user;
@@ -288,6 +335,7 @@ program
         : await createAgentSession({
             autoApprove,
             maxSteps,
+            llmConfig: config.llm,
             confirm: async (question: string) => {
               const wasSpinning = spinner.isSpinning();
               if (wasSpinning) {
@@ -385,19 +433,33 @@ program
         stats.addInput(input);
         stats.startResponse();
         spinner.start();
+        let cleanupEsc = () => undefined;
         try {
+          const controller = new AbortController();
+          cleanupEsc = attachEscCancel(controller, () => {
+            if (spinner.isSpinning()) {
+              spinner.stop();
+            }
+            console.log(colors.warn("Request cancelled."));
+          });
           const response = remoteSession
-            ? await remoteSession.send(input, (tokenChunk) => {
-                if (!streamState.active) {
-                  streamState.active = true;
-                  if (spinner.isSpinning()) {
-                    spinner.stop();
+            ? await remoteSession.send(
+                input,
+                (tokenChunk) => {
+                  if (!streamState.active) {
+                    streamState.active = true;
+                    if (spinner.isSpinning()) {
+                      spinner.stop();
+                    }
                   }
-                }
-                stats.addOutputChunk(tokenChunk);
-                process.stdout.write(colors.assistant(tokenChunk));
-              }, handleAgentOutput)
-            : await session!.runTurn(input);
+                  stats.addOutputChunk(tokenChunk);
+                  process.stdout.write(colors.assistant(tokenChunk));
+                },
+                handleAgentOutput,
+                controller.signal
+              )
+            : await session!.runTurn(input, { signal: controller.signal });
+          cleanupEsc();
           spinner.stop();
           if (streamState.active) {
             process.stdout.write("\n");
@@ -408,7 +470,11 @@ program
           stats.finishResponse();
           printStats(stats);
         } catch (err) {
+          cleanupEsc();
           spinner.stop();
+          if (isAbortError(err)) {
+            continue;
+          }
           throw err;
         }
       }
@@ -496,6 +562,23 @@ function parseYesNo(answer: string): boolean {
   return normalized === "y" || normalized === "yes";
 }
 
+function resolveOption<T>(
+  command: Command,
+  name: string,
+  cliValue: T | undefined,
+  fallback: T
+): T {
+  try {
+    const source = command.getOptionValueSource(name);
+    if (source === "cli") {
+      return cliValue as T;
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
 async function autoUpdateCountdown(behind: number, branch: string, seconds: number): Promise<boolean> {
   console.log(
     colors.info(
@@ -551,6 +634,51 @@ function printStats(stats: ConversationStats): void {
     `elapsed~${snapshot.elapsedSeconds.toFixed(1)}s`
   ];
   console.log(colors.dim(`Stats: ${parts.join(" | ")}`));
+}
+
+function attachEscCancel(controller: AbortController, onCancel?: () => void): () => void {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return () => undefined;
+  }
+
+  const wasRaw = (stdin as { isRaw?: boolean }).isRaw ?? false;
+  const onData = (data: Buffer) => {
+    if (data.length > 0 && data[0] === 0x1b) {
+      if (!controller.signal.aborted) {
+        controller.abort();
+        onCancel?.();
+      }
+    }
+  };
+
+  try {
+    stdin.setRawMode(true);
+  } catch {
+    return () => undefined;
+  }
+  stdin.resume();
+  stdin.on("data", onData);
+
+  return () => {
+    stdin.off("data", onData);
+    try {
+      stdin.setRawMode(wasRaw);
+    } catch {
+      // ignore
+    }
+  };
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err) {
+    return false;
+  }
+  const anyErr = err as { name?: string; message?: string };
+  if (anyErr.name === "AbortError") {
+    return true;
+  }
+  return typeof anyErr.message === "string" && anyErr.message.toLowerCase().includes("aborted");
 }
 
 function makeAgentOutputHandler(spinner: ReturnType<typeof createSpinner>) {

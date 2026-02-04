@@ -1,7 +1,8 @@
-import type { ToolDefinition } from "../llm/ollamaClient.js";
+import { OllamaClient, type ToolDefinition } from "../llm/ollamaClient.js";
 import { webSearch, webFetch } from "./web.js";
 import { fsList, fsRead, fsWrite, fsApplyPatch } from "./fs.js";
 import { docSummarize } from "./doc.js";
+import type { LlmConfig } from "../util/config.js";
 
 export interface ToolRegistry {
   definitions: ToolDefinition[];
@@ -9,7 +10,8 @@ export interface ToolRegistry {
   writeTools: Set<string>;
 }
 
-export function createToolRegistry(workspaceRoot: string): ToolRegistry {
+export function createToolRegistry(workspaceRoot: string, llmConfig?: LlmConfig): ToolRegistry {
+  const docClient = llmConfig ? new OllamaClient(llmConfig) : undefined;
   const definitions: ToolDefinition[] = [
     {
       type: "function",
@@ -153,7 +155,7 @@ export function createToolRegistry(workspaceRoot: string): ToolRegistry {
         maxChars: args.maxChars,
         style: args.style,
         focus: args.focus
-      })
+      }, docClient)
   };
 
   const writeTools = new Set<string>(["fs_write", "fs_apply_patch"]);

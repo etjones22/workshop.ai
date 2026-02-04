@@ -4,6 +4,7 @@ import path from "node:path";
 import { createAgentSession, type AgentSession } from "../agent/loop.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
 import { estimateTokens } from "../util/stats.js";
+import type { LlmConfig } from "../util/config.js";
 
 export interface ServerOptions {
   host: string;
@@ -12,6 +13,7 @@ export interface ServerOptions {
   maxSteps: number;
   autoApprove: boolean;
   baseDir: string;
+  llmConfig?: LlmConfig;
 }
 
 interface SessionRecord {
@@ -179,7 +181,8 @@ async function createSessionRecord(options: ServerOptions, userId: string): Prom
     maxSteps: options.maxSteps,
     confirm: options.autoApprove ? undefined : async () => false,
     baseDir: options.baseDir,
-    workspaceRoot
+    workspaceRoot,
+    llmConfig: options.llmConfig
   });
   const id = randomUUID();
   return { id, session, busy: false, userId, workspaceRoot };

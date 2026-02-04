@@ -138,7 +138,8 @@ async function createSessionRecord(options, userId) {
         maxSteps: options.maxSteps,
         confirm: options.autoApprove ? undefined : async () => false,
         baseDir: options.baseDir,
-        workspaceRoot
+        workspaceRoot,
+        llmConfig: options.llmConfig
     });
     const id = randomUUID();
     return { id, session, busy: false, userId, workspaceRoot };

@@ -7,11 +7,13 @@ import type { AgentProfile } from "./agents.js";
 import { createToolRegistry } from "../tools/index.js";
 import { createSessionLogger } from "../util/logger.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
+import { DEFAULT_CONFIG, type LlmConfig } from "../util/config.js";
 
 export interface AgentOptions {
   request: string;
   autoApprove: boolean;
   maxSteps: number;
+  llmConfig?: LlmConfig;
 }
 
 export interface AgentSessionOptions {
@@ -22,12 +24,17 @@ export interface AgentSessionOptions {
   onAgent?: (event: { name: string; content: string }) => void;
   workspaceRoot?: string;
   baseDir?: string;
+  llmConfig?: LlmConfig;
 }
 
 export interface AgentSession {
   runTurn: (
     request: string,
-    options?: { onToken?: (token: string) => void; onAgent?: (event: { name: string; content: string }) => void }
+    options?: {
+      onToken?: (token: string) => void;
+      onAgent?: (event: { name: string; content: string }) => void;
+      signal?: AbortSignal;
+    }
   ) => Promise<string>;
   reset: () => Promise<void>;
 }
@@ -37,12 +44,13 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
   const workspaceRoot = options.workspaceRoot ?? path.join(baseDir, "workspace");
   await ensureWorkspaceRoot(workspaceRoot);
 
+  const llmConfig = options.llmConfig ?? DEFAULT_CONFIG.llm;
   const logger = await createSessionLogger(baseDir);
-  const tools = createToolRegistry(workspaceRoot);
+  const tools = createToolRegistry(workspaceRoot, llmConfig);
   const client = new OllamaClient({
-    baseUrl: "http://localhost:11434/v1",
-    apiKey: "ollama",
-    model: "gpt-oss:20b"
+    baseUrl: llmConfig.baseUrl,
+    apiKey: llmConfig.apiKey,
+    model: llmConfig.model
   });
 
   const confirm = options.confirm ?? promptYesNo;
@@ -51,10 +59,15 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
 
   async function runTurn(
     request: string,
-    runOptions?: { onToken?: (token: string) => void; onAgent?: (event: { name: string; content: string }) => void }
+    runOptions?: {
+      onToken?: (token: string) => void;
+      onAgent?: (event: { name: string; content: string }) => void;
+      signal?: AbortSignal;
+    }
   ): Promise<string> {
     const onToken = runOptions?.onToken ?? options.onToken;
     const onAgent = runOptions?.onAgent ?? options.onAgent;
+    const signal = runOptions?.signal;
     messages.push({ role: "user", content: request });
     await logger.log({ type: "message", role: "user", content: request });
 
@@ -81,15 +94,15 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
       let message: ChatMessage | null = null;
 
       if (onToken) {
-        const streamed = await streamAssistantResponse(
-          client,
-          messages,
-          tools.definitions,
-          onToken
-        );
+        const streamed = await streamAssistantResponse(client, messages, tools.definitions, onToken, signal);
         message = streamed;
       } else {
-        const response = await client.chat({ messages, tools: tools.definitions, toolChoice: "auto" });
+        const response = await client.chat({
+          messages,
+          tools: tools.definitions,
+          toolChoice: "auto",
+          signal
+        });
         const choice = response.choices[0];
         message = choice?.message ?? null;
       }
@@ -173,7 +186,8 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
 export async function runAgent(options: AgentOptions): Promise<string> {
   const session = await createAgentSession({
     autoApprove: options.autoApprove,
-    maxSteps: options.maxSteps
+    maxSteps: options.maxSteps,
+    llmConfig: options.llmConfig
   });
   return session.runTurn(options.request);
 }
@@ -197,12 +211,13 @@ async function streamAssistantResponse(
   client: OllamaClient,
   messages: ChatMessage[],
   tools: { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }[],
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  signal?: AbortSignal
 ): Promise<ChatMessage> {
   let content = "";
   const toolCalls: ToolCall[] = [];
 
-  for await (const chunk of client.chatStream({ messages, tools, toolChoice: "auto" })) {
+  for await (const chunk of client.chatStream({ messages, tools, toolChoice: "auto", signal })) {
     const choice = chunk.choices[0];
     const delta = choice?.delta;
     if (!delta) {

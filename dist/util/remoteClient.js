@@ -1,6 +1,6 @@
 export function createRemoteSession(options) {
     let sessionId;
-    const send = async (message, onToken, onAgent) => {
+    const send = async (message, onToken, onAgent, signal) => {
         const payload = { message };
         if (sessionId) {
             payload.sessionId = sessionId;
@@ -11,7 +11,8 @@ export function createRemoteSession(options) {
         const response = await fetch(new URL("/chat", options.baseUrl).toString(), {
             method: "POST",
             headers: buildHeaders(options),
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal
         });
         if (!response.ok || !response.body) {
             const text = await response.text();

@@ -6,16 +6,18 @@ import { routeAgent } from "./router.js";
 import { createToolRegistry } from "../tools/index.js";
 import { createSessionLogger } from "../util/logger.js";
 import { ensureWorkspaceRoot } from "../util/sandboxPath.js";
+import { DEFAULT_CONFIG } from "../util/config.js";
 export async function createAgentSession(options) {
     const baseDir = options.baseDir ?? process.cwd();
     const workspaceRoot = options.workspaceRoot ?? path.join(baseDir, "workspace");
     await ensureWorkspaceRoot(workspaceRoot);
+    const llmConfig = options.llmConfig ?? DEFAULT_CONFIG.llm;
     const logger = await createSessionLogger(baseDir);
-    const tools = createToolRegistry(workspaceRoot);
+    const tools = createToolRegistry(workspaceRoot, llmConfig);
     const client = new OllamaClient({
-        baseUrl: "http://localhost:11434/v1",
-        apiKey: "ollama",
-        model: "gpt-oss:20b"
+        baseUrl: llmConfig.baseUrl,
+        apiKey: llmConfig.apiKey,
+        model: llmConfig.model
     });
     const confirm = options.confirm ?? promptYesNo;
     let messages = [{ role: "system", content: buildSystemPrompt(options.autoApprove) }];
@@ -23,6 +25,7 @@ export async function createAgentSession(options) {
     async function runTurn(request, runOptions) {
         const onToken = runOptions?.onToken ?? options.onToken;
         const onAgent = runOptions?.onAgent ?? options.onAgent;
+        const signal = runOptions?.signal;
         messages.push({ role: "user", content: request });
         await logger.log({ type: "message", role: "user", content: request });
         const routed = routeAgent(request);
@@ -46,11 +49,16 @@ export async function createAgentSession(options) {
         for (let step = 0; step < options.maxSteps; step += 1) {
             let message = null;
             if (onToken) {
-                const streamed = await streamAssistantResponse(client, messages, tools.definitions, onToken);
+                const streamed = await streamAssistantResponse(client, messages, tools.definitions, onToken, signal);
                 message = streamed;
             }
             else {
-                const response = await client.chat({ messages, tools: tools.definitions, toolChoice: "auto" });
+                const response = await client.chat({
+                    messages,
+                    tools: tools.definitions,
+                    toolChoice: "auto",
+                    signal
+                });
                 const choice = response.choices[0];
                 message = choice?.message ?? null;
             }
@@ -126,7 +134,8 @@ export async function createAgentSession(options) {
 export async function runAgent(options) {
     const session = await createAgentSession({
         autoApprove: options.autoApprove,
-        maxSteps: options.maxSteps
+        maxSteps: options.maxSteps,
+        llmConfig: options.llmConfig
     });
     return session.runTurn(options.request);
 }
@@ -143,10 +152,10 @@ async function promptYesNo(question) {
         });
     });
 }
-async function streamAssistantResponse(client, messages, tools, onToken) {
+async function streamAssistantResponse(client, messages, tools, onToken, signal) {
     let content = "";
     const toolCalls = [];
-    for await (const chunk of client.chatStream({ messages, tools, toolChoice: "auto" })) {
+    for await (const chunk of client.chatStream({ messages, tools, toolChoice: "auto", signal })) {
         const choice = chunk.choices[0];
         const delta = choice?.delta;
         if (!delta) {

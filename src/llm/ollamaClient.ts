@@ -79,6 +79,7 @@ export class OllamaClient {
     tools?: ToolDefinition[];
     toolChoice?: "auto" | "none";
     temperature?: number;
+    signal?: AbortSignal;
   }): Promise<ChatCompletionResponse> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
@@ -86,6 +87,7 @@ export class OllamaClient {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`
       },
+      signal: params.signal,
       body: JSON.stringify({
         model: this.model,
         messages: params.messages,
@@ -108,6 +110,7 @@ export class OllamaClient {
     tools?: ToolDefinition[];
     toolChoice?: "auto" | "none";
     temperature?: number;
+    signal?: AbortSignal;
   }): AsyncGenerator<ChatCompletionChunk> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
@@ -115,6 +118,7 @@ export class OllamaClient {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`
       },
+      signal: params.signal,
       body: JSON.stringify({
         model: this.model,
         messages: params.messages,

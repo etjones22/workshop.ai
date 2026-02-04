@@ -14,6 +14,7 @@ export class OllamaClient {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${this.apiKey}`
             },
+            signal: params.signal,
             body: JSON.stringify({
                 model: this.model,
                 messages: params.messages,
@@ -35,6 +36,7 @@ export class OllamaClient {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${this.apiKey}`
             },
+            signal: params.signal,
             body: JSON.stringify({
                 model: this.model,
                 messages: params.messages,
