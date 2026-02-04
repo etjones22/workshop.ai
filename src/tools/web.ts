@@ -1,4 +1,4 @@
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { Readability } from "@mozilla/readability";
 
 export interface WebSearchResult {
@@ -132,7 +132,15 @@ export async function webFetch(url: string, maxChars = 20000): Promise<{ url: st
   }
 
   const html = await response.text();
-  const dom = new JSDOM(html, { url });
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on("jsdomError", (err) => {
+    const message = String(err);
+    if (message.includes("Could not parse CSS stylesheet")) {
+      return;
+    }
+    console.warn(message);
+  });
+  const dom = new JSDOM(html, { url, virtualConsole });
   const document = dom.window.document;
   const title = document.title || undefined;
 

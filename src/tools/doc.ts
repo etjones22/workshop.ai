@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import { OllamaClient } from "../llm/ollamaClient.js";
 import { ensureWorkspaceRoot, resolveSandboxPath } from "../util/sandboxPath.js";
@@ -153,7 +153,18 @@ async function loadSourceText(
 
   if (ext === ".html" || ext === ".htm") {
     const html = text;
-    const dom = new JSDOM(html, { url: `file://${resolved.absolutePath.replace(/\\/g, "/")}` });
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", (err) => {
+      const message = String(err);
+      if (message.includes("Could not parse CSS stylesheet")) {
+        return;
+      }
+      console.warn(message);
+    });
+    const dom = new JSDOM(html, {
+      url: `file://${resolved.absolutePath.replace(/\\/g, "/")}`,
+      virtualConsole
+    });
     const document = dom.window.document;
     title = document.title || undefined;
     const reader = new Readability(document);

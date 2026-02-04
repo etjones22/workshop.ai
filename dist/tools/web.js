@@ -1,4 +1,4 @@
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { Readability } from "@mozilla/readability";
 export async function webSearch(query, options = {}) {
     const count = options.count ?? 5;
@@ -96,7 +96,15 @@ export async function webFetch(url, maxChars = 20000) {
         throw new Error(`Fetch error ${response.status}: ${text}`);
     }
     const html = await response.text();
-    const dom = new JSDOM(html, { url });
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", (err) => {
+        const message = String(err);
+        if (message.includes("Could not parse CSS stylesheet")) {
+            return;
+        }
+        console.warn(message);
+    });
+    const dom = new JSDOM(html, { url, virtualConsole });
     const document = dom.window.document;
     const title = document.title || undefined;
     const reader = new Readability(document);
