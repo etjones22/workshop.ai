@@ -86,7 +86,7 @@ Example:
   "llm": {
     "baseUrl": "http://localhost:11434/v1",
     "apiKey": "ollama",
-    "model": "gpt-oss:20b"
+    "model": "glm-4.7-flash"
   },
   "agent": {
     "autoApprove": false,
