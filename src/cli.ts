@@ -9,8 +9,8 @@ import { applyForceUpdate, applyUpdate, applyUpdateWithStash, checkForUpdates } 
 import { colors } from "./util/colors.js";
 import { createPushToTalk } from "./util/speechToText.js";
 import { createProgressBar } from "./util/progress.js";
-import { ConversationStats } from "./util/stats.js";
-import { renderMarkdownToAnsi } from "./util/markdown.js";
+import { ConversationStats, estimateTokens } from "./util/stats.js";
+import { createMarkdownStreamRenderer, renderMarkdownToAnsi } from "./util/markdown.js";
 import { startServer } from "./server/server.js";
 import { createRemoteSession } from "./util/remoteClient.js";
 import { formatVersionBanner, getVersionInfo } from "./util/version.js";
@@ -191,6 +191,7 @@ program
         const remoteSession = createRemoteSession({ baseUrl: remote, token, userId });
         let streamed = false;
         let cleanupEsc: () => void = () => {};
+        const streamRenderer = createMarkdownStreamRenderer();
         stats.addInput(request);
         stats.startResponse();
         spinner.start();
@@ -212,7 +213,10 @@ program
                 }
               }
               stats.addOutputChunk(tokenChunk);
-              process.stdout.write(colors.assistant(tokenChunk));
+              const rendered = streamRenderer.push(tokenChunk);
+              if (rendered) {
+                process.stdout.write(colors.assistant(rendered));
+              }
             },
             handleAgentOutput,
             controller.signal
@@ -220,6 +224,10 @@ program
           cleanupEsc();
           spinner.stop();
           if (streamed) {
+            const tail = streamRenderer.flush();
+            if (tail) {
+              process.stdout.write(colors.assistant(tail));
+            }
             process.stdout.write("\n");
           } else {
             stats.addOutputChunk(response);
@@ -239,6 +247,7 @@ program
       }
 
       let streamed = false;
+      const streamRenderer = createMarkdownStreamRenderer();
       const session = await createAgentSession({
         autoApprove,
         maxSteps,
@@ -265,7 +274,10 @@ program
             }
           }
           stats.addOutputChunk(token);
-          process.stdout.write(colors.assistant(token));
+          const rendered = streamRenderer.push(token);
+          if (rendered) {
+            process.stdout.write(colors.assistant(rendered));
+          }
         },
         onAgent: handleAgentOutput
       });
@@ -286,6 +298,10 @@ program
         cleanupEsc();
         spinner.stop();
         if (streamed) {
+          const tail = streamRenderer.flush();
+          if (tail) {
+            process.stdout.write(colors.assistant(tail));
+          }
           process.stdout.write("\n");
         } else {
           stats.addOutputChunk(result);
@@ -364,6 +380,7 @@ program
       const spinner = createSpinner("Thinking...", { frameColor: colors.spinner, textColor: colors.info });
       const stats = new ConversationStats();
       const streamState = { active: false };
+      const streamRenderer = createMarkdownStreamRenderer();
       const handleAgentOutput = makeAgentOutputHandler(spinner);
       const remoteSession = remote ? createRemoteSession({ baseUrl: remote, token, userId }) : null;
       const session = remote
@@ -392,7 +409,10 @@ program
                 }
               }
               stats.addOutputChunk(tokenChunk);
-              process.stdout.write(colors.assistant(tokenChunk));
+              const rendered = streamRenderer.push(tokenChunk);
+              if (rendered) {
+                process.stdout.write(colors.assistant(rendered));
+              }
             },
             onAgent: handleAgentOutput
           });
@@ -448,6 +468,7 @@ program
             console.log(colors.warn("Usage: /research <topic>"));
             continue;
           }
+          streamRenderer.reset();
           const wrapped = `Research: ${query}`;
           streamState.active = false;
           stats.addInput(wrapped);
@@ -473,7 +494,10 @@ program
                       }
                     }
                     stats.addOutputChunk(tokenChunk);
-                    process.stdout.write(colors.assistant(tokenChunk));
+                    const rendered = streamRenderer.push(tokenChunk);
+                    if (rendered) {
+                      process.stdout.write(colors.assistant(rendered));
+                    }
                   },
                   handleAgentOutput,
                   controller.signal
@@ -482,6 +506,10 @@ program
             cleanupEsc();
             spinner.stop();
             if (streamState.active) {
+              const tail = streamRenderer.flush();
+              if (tail) {
+                process.stdout.write(colors.assistant(tail));
+              }
               process.stdout.write("\n");
             } else {
               stats.addOutputChunk(response);
@@ -543,6 +571,7 @@ program
           continue;
         }
         streamState.active = false;
+        streamRenderer.reset();
         stats.addInput(input);
         stats.startResponse();
         spinner.start();
@@ -566,7 +595,10 @@ program
                     }
                   }
                   stats.addOutputChunk(tokenChunk);
-                  process.stdout.write(colors.assistant(tokenChunk));
+                  const rendered = streamRenderer.push(tokenChunk);
+                  if (rendered) {
+                    process.stdout.write(colors.assistant(rendered));
+                  }
                 },
                 handleAgentOutput,
                 controller.signal
@@ -575,6 +607,10 @@ program
           cleanupEsc();
           spinner.stop();
           if (streamState.active) {
+            const tail = streamRenderer.flush();
+            if (tail) {
+              process.stdout.write(colors.assistant(tail));
+            }
             process.stdout.write("\n");
           } else {
             stats.addOutputChunk(response);
@@ -800,7 +836,22 @@ function makeAgentOutputHandler(spinner: ReturnType<typeof createSpinner>) {
     if (wasSpinning) {
       spinner.stop();
     }
-    console.log(colors.tool(`[Agent (${event.name})]: ${event.content}`));
+    const lowerName = event.name.toLowerCase();
+    if (lowerName.includes("research")) {
+      const tokens = estimateTokens(event.content);
+      const chars = event.content.length;
+      const sources = (event.content.match(/https?:\/\/\S+/g) || []).length;
+      console.log(
+        colors.tool(
+          `\n[Research Agent End - tokens~${tokens} | chars=${chars} | sources=${sources}]\n`
+        )
+      );
+    } else {
+      const header = colors.tool(`\n[Agent: ${event.name}]`);
+      console.log(header);
+      console.log(renderMarkdownToAnsi(event.content));
+      console.log(colors.dim(`[End Agent: ${event.name}]\n`));
+    }
     if (wasSpinning) {
       spinner.start();
     }
