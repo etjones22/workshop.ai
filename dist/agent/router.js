@@ -1,6 +1,9 @@
-import { emailWriterAgent } from "./agents.js";
+import { emailWriterAgent, researchAgent } from "./agents.js";
 export function routeAgent(request) {
     const text = request.toLowerCase();
+    if (isResearchRequest(text)) {
+        return { agent: researchAgent, reason: "Research intent detected" };
+    }
     if (isEmailDraftRequest(text)) {
         return { agent: emailWriterAgent, reason: "Email drafting intent detected" };
     }
@@ -16,6 +19,18 @@ function isEmailDraftRequest(text) {
         return true;
     }
     if (text.includes("write an email") || text.includes("compose an email")) {
+        return true;
+    }
+    return false;
+}
+function isResearchRequest(text) {
+    if (text.includes("research") || text.includes("deep dive") || text.includes("investigate")) {
+        return true;
+    }
+    if (text.includes("find sources") || text.includes("source list")) {
+        return true;
+    }
+    if (text.includes("literature review") || text.includes("background on")) {
         return true;
     }
     return false;

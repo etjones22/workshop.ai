@@ -52,6 +52,19 @@ program
     }
 });
 program
+    .command("config")
+    .description("Print the resolved Workshop.AI configuration")
+    .action(async () => {
+    try {
+        const config = await loadConfig(process.cwd());
+        console.log(JSON.stringify(config, null, 2));
+    }
+    catch (err) {
+        console.error(colors.error(err.message));
+        process.exitCode = 1;
+    }
+});
+program
     .command("serve")
     .description("Start Workshop.AI server for remote clients")
     .option("--host <host>", "Host to bind", "0.0.0.0")
@@ -126,7 +139,7 @@ program
         if (remote) {
             const remoteSession = createRemoteSession({ baseUrl: remote, token, userId });
             let streamed = false;
-            let cleanupEsc = () => undefined;
+            let cleanupEsc = () => { };
             stats.addInput(request);
             stats.startResponse();
             spinner.start();
@@ -202,7 +215,7 @@ program
             onAgent: handleAgentOutput
         });
         const controller = new AbortController();
-        let cleanupEsc = () => undefined;
+        let cleanupEsc = () => { };
         cleanupEsc = attachEscCancel(controller, () => {
             if (spinner.isSpinning()) {
                 spinner.stop();
@@ -355,6 +368,60 @@ program
             if (!input) {
                 continue;
             }
+            if (input.startsWith("/research")) {
+                const query = input.replace(/^\/research\s*/i, "").trim();
+                if (!query) {
+                    console.log(colors.warn("Usage: /research <topic>"));
+                    continue;
+                }
+                const wrapped = `Research: ${query}`;
+                streamState.active = false;
+                stats.addInput(wrapped);
+                stats.startResponse();
+                spinner.start();
+                let cleanupEsc = () => { };
+                try {
+                    const controller = new AbortController();
+                    cleanupEsc = attachEscCancel(controller, () => {
+                        if (spinner.isSpinning()) {
+                            spinner.stop();
+                        }
+                        console.log(colors.warn("Request cancelled."));
+                    });
+                    const response = remoteSession
+                        ? await remoteSession.send(wrapped, (tokenChunk) => {
+                            if (!streamState.active) {
+                                streamState.active = true;
+                                if (spinner.isSpinning()) {
+                                    spinner.stop();
+                                }
+                            }
+                            stats.addOutputChunk(tokenChunk);
+                            process.stdout.write(colors.assistant(tokenChunk));
+                        }, handleAgentOutput, controller.signal)
+                        : await session.runTurn(wrapped, { signal: controller.signal });
+                    cleanupEsc();
+                    spinner.stop();
+                    if (streamState.active) {
+                        process.stdout.write("\n");
+                    }
+                    else {
+                        stats.addOutputChunk(response);
+                        console.log(renderMarkdownToAnsi(response));
+                    }
+                    stats.finishResponse();
+                    printStats(stats);
+                }
+                catch (err) {
+                    cleanupEsc();
+                    spinner.stop();
+                    if (isAbortError(err)) {
+                        continue;
+                    }
+                    throw err;
+                }
+                continue;
+            }
             if (input === "/exit" || input === "/quit") {
                 break;
             }
@@ -383,7 +450,7 @@ program
             stats.addInput(input);
             stats.startResponse();
             spinner.start();
-            let cleanupEsc = () => undefined;
+            let cleanupEsc = () => { };
             try {
                 const controller = new AbortController();
                 cleanupEsc = attachEscCancel(controller, () => {

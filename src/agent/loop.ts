@@ -1,6 +1,12 @@
 import path from "node:path";
 import readline from "node:readline";
-import { OllamaClient, type ChatMessage, type ToolCall, type ToolCallDelta } from "../llm/ollamaClient.js";
+import {
+  OllamaClient,
+  type ChatMessage,
+  type ToolCall,
+  type ToolCallDelta,
+  type ToolDefinition
+} from "../llm/ollamaClient.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import { routeAgent } from "./router.js";
 import type { AgentProfile } from "./agents.js";
@@ -73,7 +79,7 @@ export async function createAgentSession(options: AgentSessionOptions): Promise<
 
     const routed = routeAgent(request);
     if (routed) {
-      const draft = await runSpecialistAgent(client, routed.agent, request);
+      const draft = await runSpecialistAgent(client, tools, routed.agent, request, signal);
       if (draft.trim()) {
         onAgent?.({ name: routed.agent.name, content: draft });
         await logger.log({
@@ -252,18 +258,91 @@ function buildAgentContext(agent: AgentProfile, content: string): string {
 
 async function runSpecialistAgent(
   client: OllamaClient,
+  tools: { definitions: ToolDefinition[]; handlers: Record<string, (args: any) => Promise<any>> },
   agent: AgentProfile,
-  request: string
+  request: string,
+  signal?: AbortSignal
 ): Promise<string> {
-  const response = await client.chat({
-    messages: [
-      { role: "system", content: agent.systemPrompt },
-      { role: "user", content: request }
-    ],
-    toolChoice: "none",
-    temperature: 0.2
-  });
-  return response.choices[0]?.message?.content ?? "";
+  const messages: ChatMessage[] = [
+    { role: "system", content: agent.systemPrompt },
+    { role: "user", content: request }
+  ];
+  const maxSteps = agent.maxSteps ?? 6;
+  const agentTools = filterTools(tools, agent.toolNames);
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    const response = await client.chat({
+      messages,
+      tools: agentTools.definitions.length > 0 ? agentTools.definitions : undefined,
+      toolChoice: agentTools.definitions.length > 0 ? "auto" : "none",
+      temperature: 0.2,
+      signal
+    });
+    const choice = response.choices[0];
+    const message = choice?.message;
+    if (!message) {
+      break;
+    }
+    messages.push(message);
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      for (const toolCall of message.tool_calls) {
+        const toolName = toolCall.function.name;
+        let args: any = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments || "{}");
+        } catch (err) {
+          const error = `Invalid tool arguments for ${toolName}`;
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ error })
+          });
+          continue;
+        }
+        const handler = agentTools.handlers[toolName];
+        let result: any;
+        if (!handler) {
+          result = { error: `Unknown tool: ${toolName}` };
+        } else {
+          try {
+            result = await handler(args);
+          } catch (err) {
+            result = { error: (err as Error).message };
+          }
+        }
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result)
+        });
+      }
+      continue;
+    }
+    if (message.content && message.content.trim().length > 0) {
+      return message.content;
+    }
+  }
+
+  return "";
+}
+
+function filterTools(
+  tools: { definitions: ToolDefinition[]; handlers: Record<string, (args: any) => Promise<any>> },
+  allowed?: string[]
+) {
+  if (!allowed || allowed.length === 0) {
+    return { definitions: [], handlers: {} as Record<string, (args: any) => Promise<any>> };
+  }
+  const allowSet = new Set(allowed);
+  const definitions = tools.definitions.filter((tool) => allowSet.has(tool.function.name));
+  const handlers: Record<string, (args: any) => Promise<any>> = {};
+  for (const name of allowSet) {
+    const handler = tools.handlers[name];
+    if (handler) {
+      handlers[name] = handler;
+    }
+  }
+  return { definitions, handlers };
 }
 
 function mergeToolCallDeltas(target: ToolCall[], deltas: ToolCallDelta[]): void {

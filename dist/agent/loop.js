@@ -30,7 +30,7 @@ export async function createAgentSession(options) {
         await logger.log({ type: "message", role: "user", content: request });
         const routed = routeAgent(request);
         if (routed) {
-            const draft = await runSpecialistAgent(client, routed.agent, request);
+            const draft = await runSpecialistAgent(client, tools, routed.agent, request, signal);
             if (draft.trim()) {
                 onAgent?.({ name: routed.agent.name, content: draft });
                 await logger.log({
@@ -185,16 +185,84 @@ function buildAgentContext(agent, content) {
         "Use this as draft guidance and respond to the user."
     ].join("\n");
 }
-async function runSpecialistAgent(client, agent, request) {
-    const response = await client.chat({
-        messages: [
-            { role: "system", content: agent.systemPrompt },
-            { role: "user", content: request }
-        ],
-        toolChoice: "none",
-        temperature: 0.2
-    });
-    return response.choices[0]?.message?.content ?? "";
+async function runSpecialistAgent(client, tools, agent, request, signal) {
+    const messages = [
+        { role: "system", content: agent.systemPrompt },
+        { role: "user", content: request }
+    ];
+    const maxSteps = agent.maxSteps ?? 6;
+    const agentTools = filterTools(tools, agent.toolNames);
+    for (let step = 0; step < maxSteps; step += 1) {
+        const response = await client.chat({
+            messages,
+            tools: agentTools.definitions.length > 0 ? agentTools.definitions : undefined,
+            toolChoice: agentTools.definitions.length > 0 ? "auto" : "none",
+            temperature: 0.2,
+            signal
+        });
+        const choice = response.choices[0];
+        const message = choice?.message;
+        if (!message) {
+            break;
+        }
+        messages.push(message);
+        if (message.tool_calls && message.tool_calls.length > 0) {
+            for (const toolCall of message.tool_calls) {
+                const toolName = toolCall.function.name;
+                let args = {};
+                try {
+                    args = JSON.parse(toolCall.function.arguments || "{}");
+                }
+                catch (err) {
+                    const error = `Invalid tool arguments for ${toolName}`;
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        content: JSON.stringify({ error })
+                    });
+                    continue;
+                }
+                const handler = agentTools.handlers[toolName];
+                let result;
+                if (!handler) {
+                    result = { error: `Unknown tool: ${toolName}` };
+                }
+                else {
+                    try {
+                        result = await handler(args);
+                    }
+                    catch (err) {
+                        result = { error: err.message };
+                    }
+                }
+                messages.push({
+                    role: "tool",
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(result)
+                });
+            }
+            continue;
+        }
+        if (message.content && message.content.trim().length > 0) {
+            return message.content;
+        }
+    }
+    return "";
+}
+function filterTools(tools, allowed) {
+    if (!allowed || allowed.length === 0) {
+        return { definitions: [], handlers: {} };
+    }
+    const allowSet = new Set(allowed);
+    const definitions = tools.definitions.filter((tool) => allowSet.has(tool.function.name));
+    const handlers = {};
+    for (const name of allowSet) {
+        const handler = tools.handlers[name];
+        if (handler) {
+            handlers[name] = handler;
+        }
+    }
+    return { definitions, handlers };
 }
 function mergeToolCallDeltas(target, deltas) {
     for (const delta of deltas) {
