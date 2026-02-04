@@ -15,6 +15,7 @@ import { startServer } from "./server/server.js";
 import { createRemoteSession } from "./util/remoteClient.js";
 import { formatVersionBanner, getVersionInfo } from "./util/version.js";
 import { DEFAULT_CONFIG, loadConfig } from "./util/config.js";
+import { runHealthChecks } from "./util/health.js";
 
 const program = new Command();
 program
@@ -66,6 +67,28 @@ program
     try {
       const config = await loadConfig(process.cwd());
       console.log(JSON.stringify(config, null, 2));
+    } catch (err) {
+      console.error(colors.error((err as Error).message));
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("health")
+  .description("Run the Workshop.AI health checks (tests)")
+  .action(async () => {
+    try {
+      console.log(colors.info("Running health checks..."));
+      const result = await runHealthChecks(process.cwd());
+      if (result.output) {
+        console.log(result.output);
+      }
+      if (result.success) {
+        console.log(colors.success("Health checks passed."));
+      } else {
+        console.error(colors.error("Health checks failed."));
+        process.exitCode = 1;
+      }
     } catch (err) {
       console.error(colors.error((err as Error).message));
       process.exitCode = 1;
@@ -487,6 +510,26 @@ program
         }
         if (input === "/version") {
           console.log(colors.info(formatVersionBanner(versionInfo)));
+          continue;
+        }
+        if (input === "/health") {
+          const wasSpinning = spinner.isSpinning();
+          if (wasSpinning) {
+            spinner.stop();
+          }
+          console.log(colors.info("Running health checks..."));
+          const result = await runHealthChecks(process.cwd());
+          if (result.output) {
+            console.log(result.output);
+          }
+          if (result.success) {
+            console.log(colors.success("Health checks passed."));
+          } else {
+            console.error(colors.error("Health checks failed."));
+          }
+          if (wasSpinning) {
+            spinner.start();
+          }
           continue;
         }
         if (input === "/reset") {
