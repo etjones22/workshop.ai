@@ -81,6 +81,17 @@ export class OllamaClient {
     temperature?: number;
     signal?: AbortSignal;
   }): Promise<ChatCompletionResponse> {
+    const hasTools = Array.isArray(params.tools) && params.tools.length > 0;
+    const body: Record<string, unknown> = {
+      model: this.model,
+      messages: params.messages,
+      temperature: params.temperature ?? 0
+    };
+    if (hasTools) {
+      body.tools = params.tools;
+      body.tool_choice = params.toolChoice ?? "auto";
+    }
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -88,13 +99,7 @@ export class OllamaClient {
         Authorization: `Bearer ${this.apiKey}`
       },
       signal: params.signal,
-      body: JSON.stringify({
-        model: this.model,
-        messages: params.messages,
-        tools: params.tools,
-        tool_choice: params.toolChoice ?? "auto",
-        temperature: params.temperature ?? 0
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -112,6 +117,18 @@ export class OllamaClient {
     temperature?: number;
     signal?: AbortSignal;
   }): AsyncGenerator<ChatCompletionChunk> {
+    const hasTools = Array.isArray(params.tools) && params.tools.length > 0;
+    const body: Record<string, unknown> = {
+      model: this.model,
+      messages: params.messages,
+      temperature: params.temperature ?? 0,
+      stream: true
+    };
+    if (hasTools) {
+      body.tools = params.tools;
+      body.tool_choice = params.toolChoice ?? "auto";
+    }
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -119,14 +136,7 @@ export class OllamaClient {
         Authorization: `Bearer ${this.apiKey}`
       },
       signal: params.signal,
-      body: JSON.stringify({
-        model: this.model,
-        messages: params.messages,
-        tools: params.tools,
-        tool_choice: params.toolChoice ?? "auto",
-        temperature: params.temperature ?? 0,
-        stream: true
-      })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {

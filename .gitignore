@@ -3,3 +3,4 @@ node_modules/
 workspace/
 workspaces/
 node_modules/.vite/
+workshop.config.json
